@@ -10,39 +10,36 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ShieldLog">
-<!-- Firebase -->
-<script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
-  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, enableIndexedDbPersistence }
-  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-
+<!-- Firebase compat SDKs (no module bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
 // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
-  authDomain:        "shieldlog-3618.firebaseapp.com",
-  projectId:         "shieldlog-3618",
-  storageBucket:     "shieldlog-3618.firebasestorage.app",
+  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
+  authDomain: "shieldlog-3618.firebaseapp.com",
+  projectId: "shieldlog-3618",
+  storageBucket: "shieldlog-3618.firebasestorage.app",
   messagingSenderId: "488478875183",
-  appId:             "1:488478875183:web:d38cb318b3045bdf2f30da"
+  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
-const app  = initializeApp(FIREBASE_CONFIG);
-const auth = getAuth(app);
-const db   = getFirestore(app);
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db   = firebase.firestore();
 
-// Enable offline persistence so the app works without signal
-enableIndexedDbPersistence(db).catch(()=>{});
+// Enable offline persistence so writes queue when signal drops
+db.enablePersistence().catch(()=>{});
 
-const provider = new GoogleAuthProvider();
+const provider = new firebase.auth.GoogleAuthProvider();
 let _unsubscribe = null;
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
 window.fbSignIn = async function() {
   try {
-    await signInWithPopup(auth, provider);
+    await auth.signInWithPopup(provider);
   } catch(e) {
     console.warn('Sign-in failed:', e);
     alert('Sign-in failed: ' + e.message);
@@ -50,17 +47,17 @@ window.fbSignIn = async function() {
 };
 
 window.fbSignOut = async function() {
-  if(_unsubscribe){ _unsubscribe(); _unsubscribe=null; }
-  await signOut(auth);
+  if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
+  await auth.signOut();
 };
 
-onAuthStateChanged(auth, user => {
+auth.onAuthStateChanged(user => {
   window._fbUser = user;
   updateAuthUI(user);
   if(user){
     subscribeToFirestore(user.uid);
   } else {
-    if(_unsubscribe){ _unsubscribe(); _unsubscribe=null; }
+    if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
   }
 });
 
@@ -82,14 +79,13 @@ function updateAuthUI(user){
 
 // ── FIRESTORE SYNC ───────────────────────────────────────────────────────────
 function userDocRef(uid){
-  return doc(db, 'shieldlog', uid);
+  return db.collection('shieldlog').doc(uid);
 }
 
 function subscribeToFirestore(uid){
   if(_unsubscribe) _unsubscribe();
-  _unsubscribe = onSnapshot(userDocRef(uid), snap => {
-    if(!snap.exists()) {
-      // First time — push local data up
+  _unsubscribe = userDocRef(uid).onSnapshot(snap => {
+    if(!snap.exists) {
       pushToFirestore();
       return;
     }
@@ -97,15 +93,13 @@ function subscribeToFirestore(uid){
     const remoteTs = remote._savedAt || 0;
     const localTs  = parseInt(localStorage.getItem('sl3_savedAt')||'0');
     if(remoteTs >= localTs){
-      // Remote is newer — pull it in
-      if(remote.DB) {
+      if(remote.DB){
         DB = remote.DB;
         localStorage.setItem('sl3_db', JSON.stringify(DB));
         localStorage.setItem('sl3_savedAt', String(remoteTs));
-        // Refresh UI if app is already showing
         if(document.getElementById('mainApp').style.display !== 'none'){
-          renderEvtSwitcher && renderEvtSwitcher();
-          refreshCurrentTab && refreshCurrentTab();
+          if(typeof renderEvtSwitcher==='function') renderEvtSwitcher();
+          if(typeof refreshCurrentTab==='function') refreshCurrentTab();
         }
       }
     }
@@ -117,7 +111,7 @@ window.pushToFirestore = async function() {
   if(!user) return;
   const ts = Date.now();
   try {
-    await setDoc(userDocRef(user.uid), { DB, _savedAt: ts }, { merge: false });
+    await userDocRef(user.uid).set({ DB, _savedAt: ts });
     localStorage.setItem('sl3_savedAt', String(ts));
   } catch(e){
     console.warn('Firestore write error:', e);
