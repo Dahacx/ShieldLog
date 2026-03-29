@@ -1,0 +1,2149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>ShieldLog — FRC Battery Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#07080f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ShieldLog">
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, enableIndexedDbPersistence }
+  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            "PASTE_HERE",
+  authDomain:        "PASTE_HERE",
+  projectId:         "PASTE_HERE",
+  storageBucket:     "PASTE_HERE",
+  messagingSenderId: "PASTE_HERE",
+  appId:             "PASTE_HERE"
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+const app  = initializeApp(FIREBASE_CONFIG);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// Enable offline persistence so the app works without signal
+enableIndexedDbPersistence(db).catch(()=>{});
+
+const provider = new GoogleAuthProvider();
+let _unsubscribe = null;
+
+// ── AUTH ─────────────────────────────────────────────────────────────────────
+window.fbSignIn = async function() {
+  try {
+    await signInWithPopup(auth, provider);
+  } catch(e) {
+    console.warn('Sign-in failed:', e);
+    alert('Sign-in failed: ' + e.message);
+  }
+};
+
+window.fbSignOut = async function() {
+  if(_unsubscribe){ _unsubscribe(); _unsubscribe=null; }
+  await signOut(auth);
+};
+
+onAuthStateChanged(auth, user => {
+  window._fbUser = user;
+  updateAuthUI(user);
+  if(user){
+    subscribeToFirestore(user.uid);
+  } else {
+    if(_unsubscribe){ _unsubscribe(); _unsubscribe=null; }
+  }
+});
+
+function updateAuthUI(user){
+  const bar = document.getElementById('authBar');
+  if(!bar) return;
+  if(user){
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text-300)">${user.email}</span>
+      <button class="btn btn-sm btn-secondary" onclick="fbSignOut()" style="font-size:11px;padding:4px 10px">Sign Out</button>`;
+    bar.style.background = 'rgba(34,197,94,0.08)';
+    bar.style.borderColor = 'rgba(34,197,94,0.2)';
+  } else {
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in — data is local only</span>
+      <button class="btn btn-sm btn-blue" onclick="fbSignIn()" style="font-size:11px;padding:4px 10px">Sign in with Google</button>`;
+    bar.style.background = 'rgba(59,130,246,0.06)';
+    bar.style.borderColor = 'rgba(59,130,246,0.15)';
+  }
+}
+
+// ── FIRESTORE SYNC ───────────────────────────────────────────────────────────
+function userDocRef(uid){
+  return doc(db, 'shieldlog', uid);
+}
+
+function subscribeToFirestore(uid){
+  if(_unsubscribe) _unsubscribe();
+  _unsubscribe = onSnapshot(userDocRef(uid), snap => {
+    if(!snap.exists()) {
+      // First time — push local data up
+      pushToFirestore();
+      return;
+    }
+    const remote = snap.data();
+    const remoteTs = remote._savedAt || 0;
+    const localTs  = parseInt(localStorage.getItem('sl3_savedAt')||'0');
+    if(remoteTs >= localTs){
+      // Remote is newer — pull it in
+      if(remote.DB) {
+        DB = remote.DB;
+        localStorage.setItem('sl3_db', JSON.stringify(DB));
+        localStorage.setItem('sl3_savedAt', String(remoteTs));
+        // Refresh UI if app is already showing
+        if(document.getElementById('mainApp').style.display !== 'none'){
+          renderEvtSwitcher && renderEvtSwitcher();
+          refreshCurrentTab && refreshCurrentTab();
+        }
+      }
+    }
+  }, err => console.warn('Firestore listen error:', err));
+}
+
+window.pushToFirestore = async function() {
+  const user = window._fbUser;
+  if(!user) return;
+  const ts = Date.now();
+  try {
+    await setDoc(userDocRef(user.uid), { DB, _savedAt: ts }, { merge: false });
+    localStorage.setItem('sl3_savedAt', String(ts));
+  } catch(e){
+    console.warn('Firestore write error:', e);
+  }
+};
+
+// Register service worker for PWA offline support
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-950:#07080f; --bg-900:#0d1021; --bg-800:#131629; --bg-700:#1a1f36; --bg-600:#222847;
+  --accent:#3b82f6; --accent-dim:#1d4ed8; --accent-glow:rgba(59,130,246,0.15);
+  --blue:#3b82f6; --blue-bright:#60a5fa;
+  --green:#22c55e; --green-dim:#15803d;
+  --yellow:#eab308; --red:#ef4444;
+  --text-100:#ffffff; --text-200:#e2e8f0; --text-300:#cbd5e1; --text-500:#64748b; --text-700:#334155;
+  --border:rgba(255,255,255,0.08); --border-active:rgba(59,130,246,0.5);
+  --radius:8px; --radius-lg:12px;
+  --font-mono:'JetBrains Mono',monospace; --font-disp:'Barlow Condensed',sans-serif; --font-body:'Barlow',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body);font-size:15px;line-height:1.5;overflow-x:hidden;}
+
+/* HEADER */
+.app-header{background:linear-gradient(135deg,#0a1a4a 0%,#0d2060 40%,#0e2878 100%);border-bottom:1px solid rgba(59,130,246,0.25);display:flex;align-items:center;padding:0 10px;height:52px;position:sticky;top:0;z-index:100;gap:0;}
+.logo-group{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-right:12px;}
+.logo-img{width:38px;height:38px;object-fit:contain;flex-shrink:0;}
+.logo-txt{font-family:var(--font-disp);font-size:20px;font-weight:800;letter-spacing:.05em;color:var(--text-100);white-space:nowrap;flex-shrink:0;}
+.logo-txt span{color:var(--blue-bright);}
+.header-nav{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
+.nav-tab{font-family:var(--font-body);font-size:14px;font-weight:500;color:rgba(255,255,255,.65);padding:8px 12px;border:none;background:none;cursor:pointer;white-space:nowrap;border-radius:6px;transition:all .15s;}
+.nav-tab:hover{color:var(--text-100);background:rgba(255,255,255,.10);}
+.nav-tab.active{color:var(--text-100);background:rgba(59,130,246,.25);font-weight:600;border-bottom:2px solid var(--blue-bright);}
+.nav-spacer{flex:1;}
+.header-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.year-sel{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:6px;color:var(--text-200);font-family:var(--font-mono);font-size:12px;padding:4px 8px;cursor:pointer;outline:none;}
+.year-sel option{background:#0f1629;}
+.evt-switcher{display:flex;align-items:center;gap:5px;max-width:300px;overflow-x:auto;scrollbar-width:none;}
+.evt-switcher::-webkit-scrollbar{display:none;}
+.evt-pill{font-family:var(--font-mono);font-size:11px;padding:4px 9px;border-radius:20px;border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--text-300);cursor:pointer;white-space:nowrap;transition:all .15s;display:flex;align-items:center;gap:4px;position:relative;}
+.evt-pill:hover{border-color:var(--accent);color:var(--text-100);}
+.evt-pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.evt-pill.completed{opacity:.55;}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite;flex-shrink:0;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.add-evt-btn{font-family:var(--font-mono);font-size:11px;padding:4px 9px;border-radius:20px;border:1px dashed rgba(255,255,255,.2);background:transparent;color:var(--text-500);cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0;}
+.add-evt-btn:hover{border-color:var(--accent);color:var(--accent);}
+.settings-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
+.settings-btn:hover{border-color:var(--accent);}
+.settings-btn svg{width:18px;height:18px;stroke:var(--text-300);fill:none;}
+.settings-btn:hover svg{stroke:var(--text-100);fill:none;}
+
+/* VIEWS */
+.view{display:none;padding:16px;max-width:860px;margin:0 auto;padding-bottom:80px;}
+.view.active{display:block;}
+
+/* CARDS */
+.card{background:var(--bg-900);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px;}
+.card-title{font-family:var(--font-disp);font-size:16px;font-weight:700;letter-spacing:.04em;color:var(--text-100);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+
+/* FORMS */
+.form-group{margin-bottom:12px;}
+.form-label{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-500);margin-bottom:5px;}
+.form-label .req{color:var(--accent);}
+.help-link{font-size:11px;color:var(--text-500);text-decoration:none;border:1px solid var(--border);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;transition:all .15s;flex-shrink:0;}
+.help-link:hover{border-color:var(--accent);color:var(--accent);}
+.form-input,.form-select,.form-textarea{width:100%;background:var(--bg-800);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-100);font-family:var(--font-body);font-size:14px;padding:9px 11px;transition:border-color .15s,box-shadow .15s;outline:none;appearance:none;}
+.form-input:focus,.form-select:focus,.form-textarea:focus{border-color:var(--border-active);box-shadow:0 0 0 3px var(--accent-glow);}
+.form-input::placeholder{color:var(--text-700);}
+.form-select option{background:var(--bg-800);color:var(--text-100);}
+.form-textarea{resize:vertical;min-height:66px;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media(max-width:480px){.form-row{grid-template-columns:1fr;}}
+
+/* BUTTONS */
+.btn{font-family:var(--font-disp);font-size:14px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:9px 18px;border-radius:var(--radius);border:none;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.btn-primary{background:var(--accent);color:#fff;} .btn-primary:hover{background:var(--accent-dim);}
+.btn-secondary{background:var(--bg-700);color:var(--text-300);border:1px solid var(--border);} .btn-secondary:hover{border-color:var(--border-active);color:var(--text-100);}
+.btn-blue{background:rgba(59,130,246,.15);color:var(--blue-bright);border:1px solid rgba(59,130,246,.3);} .btn-blue:hover{background:rgba(59,130,246,.25);}
+.btn-danger{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3);} .btn-danger:hover{background:rgba(239,68,68,.25);}
+.btn-success{background:var(--green-dim);color:#fff;} .btn-success:hover{background:var(--green);}
+.btn-sm{padding:5px 11px;font-size:12px;}
+.btn-full{width:100%;justify-content:center;}
+.btn:disabled{opacity:.35;cursor:not-allowed;}
+
+/* BADGES */
+.badge{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:20px;display:inline-block;white-space:nowrap;}
+.badge-green{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.25);}
+.badge-yellow{background:rgba(234,179,8,.12);color:var(--yellow);border:1px solid rgba(234,179,8,.25);}
+.badge-red{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.25);}
+.badge-blue{background:rgba(59,130,246,.12);color:var(--blue-bright);border:1px solid rgba(59,130,246,.25);}
+.badge-gray{background:rgba(100,116,139,.15);color:var(--text-500);border:1px solid rgba(100,116,139,.2);}
+.badge-tier-a{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.25);}
+.badge-tier-b{background:rgba(234,179,8,.12);color:var(--yellow);border:1px solid rgba(234,179,8,.25);}
+.badge-tier-c{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.25);}
+
+/* BEAK PANEL SIDE-BY-SIDE LAYOUT */
+.beak-panel-inner{display:flex;gap:10px;align-items:flex-start;}
+.beak-photo-col{flex:0 0 auto;width:120px;display:flex;flex-direction:column;gap:6px;}
+.beak-fields-col{flex:1;min-width:0;}
+@media(max-width:380px){.beak-panel-inner{flex-direction:column;}.beak-photo-col{width:100%;}}
+.expand-btn{font-family:var(--font-mono);font-size:10px;color:var(--text-500);background:var(--bg-700);border:1px solid var(--border);border-radius:5px;padding:3px 7px;cursor:pointer;text-align:center;width:100%;transition:all .15s;}
+.expand-btn:hover{border-color:var(--border-active);color:var(--text-100);}
+
+/* LIGHTBOX */
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1000;display:none;align-items:center;justify-content:center;padding:16px;cursor:zoom-out;}
+.lightbox.open{display:flex;}
+.lightbox img{max-width:100%;max-height:90vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);}
+
+/* BEAK PANEL */
+.beak-panel{background:var(--bg-800);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:14px;}
+.beak-panel-hdr{background:var(--bg-700);padding:8px 14px;font-family:var(--font-disp);font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-300);display:flex;align-items:center;justify-content:space-between;}
+.ocr-status{font-family:var(--font-mono);font-size:10px;padding:2px 8px;border-radius:20px;}
+.ocr-status.manual{background:rgba(100,116,139,.15);color:var(--text-500);}
+.ocr-status.processing{background:rgba(59,130,246,.15);color:var(--blue-bright);}
+.ocr-status.success{background:rgba(34,197,94,.15);color:var(--green);}
+.ocr-status.failed{background:rgba(239,68,68,.15);color:var(--red);}
+.beak-panel-body{padding:12px;}
+.beak-photo-area{border:2px dashed var(--border);border-radius:var(--radius);padding:20px 12px;text-align:center;cursor:pointer;position:relative;overflow:hidden;transition:all .15s;margin-bottom:10px;}
+.beak-photo-area:hover{border-color:var(--border-active);background:var(--accent-glow);}
+.beak-photo-area.has-img{border-style:solid;border-color:var(--border-active);padding:6px;}
+.beak-photo-area img{max-width:100%;max-height:140px;border-radius:6px;display:block;margin:0 auto;}
+.beak-photo-area input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+.photo-hint{font-family:var(--font-mono);font-size:11px;color:var(--text-500);margin-top:6px;}
+.photo-label{font-family:var(--font-disp);font-size:14px;font-weight:700;color:var(--text-300);margin-top:4px;}
+.beak-fields{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
+@media(max-width:420px){.beak-fields{grid-template-columns:repeat(2,1fr);}}
+.beak-field{background:var(--bg-900);border:1px solid var(--border);border-radius:7px;padding:7px 9px;position:relative;}
+.beak-field.conf-hi{border-color:rgba(34,197,94,.3);}
+.beak-field.conf-med{border-color:rgba(234,179,8,.3);}
+.beak-field.conf-lo{border-color:rgba(239,68,68,.35);}
+.beak-field-lbl{font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-500);margin-bottom:3px;}
+.beak-field-val input{font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-100);background:transparent;border:none;outline:none;width:100%;}
+.beak-field-val input::placeholder{color:var(--text-700);font-size:13px;}
+.conf-dot{width:5px;height:5px;border-radius:50%;position:absolute;top:5px;right:5px;}
+.conf-dot.hi{background:var(--green);} .conf-dot.med{background:var(--yellow);} .conf-dot.lo{background:var(--red);} .conf-dot.none{background:var(--text-700);}
+.verified-row{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:7px 10px;background:var(--bg-900);border:1px solid var(--border);border-radius:var(--radius);}
+.verified-row.ok{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.04);}
+.verified-lbl{font-size:12px;color:var(--text-500);}
+.verified-lbl.ok{color:var(--green);}
+.btn-verify-disabled{position:relative;cursor:not-allowed !important;opacity:.4;}
+.btn-verify-disabled::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);right:0;background:var(--bg-700);color:var(--text-200);font-family:var(--font-body);font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;padding:5px 9px;border-radius:6px;border:1px solid var(--border);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;}
+.btn-verify-disabled:hover::after{opacity:1;}
+
+/* BATTERY CARDS */
+.batt-card{background:var(--bg-900);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:10px;cursor:pointer;transition:border-color .15s,box-shadow .15s;}
+.batt-card:hover{border-color:var(--border-active);box-shadow:0 0 0 1px var(--accent-glow);}
+.batt-card.warn{border-color:rgba(234,179,8,.4);}
+.batt-card-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;gap:8px;}
+.batt-name{font-family:var(--font-disp);font-size:20px;font-weight:800;letter-spacing:.03em;color:var(--text-100);}
+.batt-meta{font-family:var(--font-mono);font-size:10px;color:var(--text-500);margin-top:2px;}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
+@media(max-width:420px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
+.stat-cell{background:var(--bg-800);border-radius:6px;padding:7px 9px;}
+.stat-lbl{font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-500);margin-bottom:2px;}
+.stat-val{font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-100);}
+.stat-val.good{color:var(--green);} .stat-val.warn{color:var(--yellow);} .stat-val.bad{color:var(--red);}
+.score-bar-wrap{background:var(--bg-700);border-radius:4px;height:5px;margin-top:9px;overflow:hidden;}
+.score-bar{height:100%;border-radius:4px;transition:width .4s;}
+
+/* SECTION TITLE */
+.sec-title{font-family:var(--font-disp);font-size:20px;font-weight:800;letter-spacing:.04em;color:var(--text-100);margin-bottom:14px;display:flex;align-items:center;gap:10px;}
+.sec-title::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* INFO BOX */
+.info-box{background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.18);border-radius:var(--radius);padding:10px 12px;font-size:13px;color:var(--text-300);margin-bottom:12px;}
+.info-box.warn{background:rgba(234,179,8,.07);border-color:rgba(234,179,8,.2);}
+.info-box.ok{background:rgba(34,197,94,.07);border-color:rgba(34,197,94,.2);}
+
+/* RANK CARDS */
+.rank-card{background:var(--bg-900);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:border-color .15s;}
+.rank-card:hover{border-color:var(--border-active);}
+.rank-card.warn{border-color:rgba(234,179,8,.4);}
+.rank-num{font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-700);width:36px;text-align:center;flex-shrink:0;}
+.rank-num.gold{color:#fbbf24;} .rank-num.silver{color:#94a3b8;} .rank-num.bronze{color:#c97c2e;}
+
+/* CYCLING */
+.sub-tabs{display:flex;gap:6px;margin-bottom:14px;}
+.sub-tab{font-family:var(--font-disp);font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:7px 14px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text-500);cursor:pointer;transition:all .15s;}
+.sub-tab:hover{color:var(--text-300);border-color:rgba(255,255,255,.15);}
+.sub-tab.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.cycle-row{background:var(--bg-900);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;}
+.cycle-match-num{font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--accent);width:44px;text-align:center;flex-shrink:0;}
+.cycle-slot{flex:1;}
+.cycle-role{font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-500);margin-bottom:2px;}
+.cycle-batt{font-family:var(--font-disp);font-size:15px;font-weight:700;color:var(--text-100);}
+
+/* EDIT FAB */
+.edit-fab{position:fixed;bottom:24px;right:20px;z-index:200;width:56px;height:56px;border-radius:28px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(59,130,246,.4);transition:all .2s;}
+.edit-fab:hover{transform:scale(1.08);background:var(--accent-dim);}
+.edit-fab svg{width:24px;height:24px;fill:#fff;}
+.edit-fab.editing{background:#0f172a;border:2px solid var(--accent);}
+.edit-fab.editing svg{fill:var(--accent);}
+
+/* SLIDER */
+.slider-group{margin-bottom:12px;}
+.slider-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+.slider-name{font-size:13px;color:var(--text-300);}
+.slider-pct{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--accent);}
+input[type=range]{-webkit-appearance:none;width:100%;height:5px;background:var(--bg-700);border-radius:3px;outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;background:var(--accent);border-radius:50%;cursor:pointer;border:2px solid var(--bg-900);}
+
+/* TABLE */
+.tbl-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+thead th{font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-500);padding:7px 9px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;}
+tbody td{padding:9px 9px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--text-300);white-space:nowrap;}
+tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
+.mono{font-family:var(--font-mono);}
+
+/* TOGGLE */
+.toggle-wrap{display:flex;align-items:center;gap:8px;margin-top:6px;}
+.toggle{position:relative;width:40px;height:22px;background:var(--bg-700);border-radius:11px;cursor:pointer;border:1px solid var(--border);transition:background .2s;flex-shrink:0;}
+.toggle.on{background:var(--accent);border-color:var(--accent-dim);}
+.toggle::after{content:'';position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:2px;left:2px;transition:left .2s;}
+.toggle.on::after{left:20px;}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:300;padding:16px;backdrop-filter:blur(4px);}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--bg-900);border:1px solid rgba(255,255,255,.1);border-radius:var(--radius-lg);padding:20px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;}
+.modal-xl{max-width:840px;}
+.modal-title{font-family:var(--font-disp);font-size:20px;font-weight:800;letter-spacing:.04em;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;}
+.modal-close{background:var(--bg-700);border:none;color:var(--text-500);cursor:pointer;width:28px;height:28px;border-radius:6px;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.modal-close:hover{color:var(--text-100);}
+.divider{height:1px;background:var(--border);margin:14px 0;}
+
+/* BATTERY FILTER CHIPS */
+.batt-filter{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.batt-chip{font-family:var(--font-mono);font-size:11px;padding:4px 10px 4px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-500);cursor:pointer;white-space:nowrap;transition:all .15s;display:flex;align-items:center;gap:5px;}
+.batt-chip:hover{border-color:rgba(255,255,255,.2);color:var(--text-300);}
+.batt-chip.sel{border-color:var(--accent);color:var(--blue-bright);background:rgba(59,130,246,.12);}
+.chip-x{font-size:12px;opacity:.6;cursor:pointer;}
+.chip-x:hover{opacity:1;}
+
+/* SETUP SCREEN */
+.setup-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:var(--bg-950);}
+.setup-logo{font-family:var(--font-disp);font-size:48px;font-weight:800;color:var(--text-100);letter-spacing:.06em;margin-bottom:4px;display:flex;align-items:center;gap:12px;}
+.setup-logo img{width:52px;height:52px;}
+.setup-logo span{color:var(--blue-bright);}
+.setup-subtitle{font-family:var(--font-mono);font-size:12px;color:var(--text-500);letter-spacing:.1em;text-transform:uppercase;margin-bottom:32px;}
+.setup-card{background:var(--bg-900);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;width:100%;max-width:480px;}
+.setup-card-title{font-family:var(--font-disp);font-size:22px;font-weight:800;color:var(--text-100);margin-bottom:20px;}
+
+/* CHART */
+.chart-wrap{position:relative;height:200px;margin-top:8px;}
+
+/* EMPTY */
+.empty{text-align:center;padding:40px 20px;color:var(--text-500);}
+.empty-title{font-family:var(--font-disp);font-size:18px;font-weight:700;color:var(--text-300);margin-bottom:6px;}
+
+/* CONTEXT MENU */
+.ctx-menu{position:fixed;background:var(--bg-800);border:1px solid rgba(255,255,255,.12);border-radius:8px;z-index:400;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.5);overflow:hidden;}
+.ctx-item{padding:10px 14px;font-size:13px;cursor:pointer;color:var(--text-300);transition:background .1s;}
+.ctx-item:hover{background:var(--bg-700);color:var(--text-100);}
+.ctx-item.danger{color:var(--red);}
+
+/* REORDER HANDLE */
+.drag-handle{cursor:grab;padding:4px 8px;color:var(--text-500);font-size:18px;flex-shrink:0;user-select:none;touch-action:none;}
+.drag-handle:active{cursor:grabbing;color:var(--accent);}
+.cycle-row.drag-over{border-color:var(--accent);background:var(--accent-glow);}
+.cycle-row.dragging{opacity:.4;pointer-events:none;}
+
+.flex{display:flex;} .items-center{align-items:center;} .justify-between{justify-content:space-between;} .gap-2{gap:8px;} .gap-3{gap:12px;}
+.mt-1{margin-top:4px;} .mt-2{margin-top:8px;} .mt-3{margin-top:12px;} .mb-1{margin-bottom:4px;} .mb-2{margin-bottom:8px;}
+.text-muted{color:var(--text-500);} .text-sm{font-size:13px;} .text-xs{font-size:11px;} .font-bold{font-weight:700;} .w-full{width:100%;}
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setupScreen" class="setup-screen">
+  <div class="setup-logo">
+    <img src="white.png.webp" alt="Paladins" style="width:80px;height:80px;object-fit:contain;margin-bottom:8px;">
+    Shield<span>Log</span>
+  </div>
+  <div class="setup-subtitle">FRC Battery Command &mdash; Petoskey Paladins 3618</div>
+  <div class="setup-card">
+    <div class="setup-card-title">First-Time Setup</div>
+    <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text-100);margin-bottom:2px">Sign in for cloud sync</div>
+        <div style="font-size:11px;color:var(--text-500)">Same Google account on all devices</div>
+      </div>
+      <button class="btn btn-blue btn-sm" onclick="fbSignIn()" style="flex-shrink:0">Sign in with Google</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Team Number</label>
+      <input type="number" class="form-input" id="setup-teamNum" placeholder="e.g. 3618">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Charger Slots</label>
+        <input type="number" class="form-input" id="setup-chargerSlots" placeholder="4" min="1" max="20">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Batteries to Field / Match</label>
+        <input type="number" class="form-input" id="setup-fieldBatts" placeholder="2" min="1" max="6">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Min Charge % to Field</label>
+        <input type="number" class="form-input" id="setup-minCharge" value="110">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Rint Cutoff (Ohm)</label>
+        <input type="number" class="form-input" id="setup-rintCutoff" value="0.020" step="0.001">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Google Vision API Key <a class="help-link" href="https://cloud.google.com/vision/docs/setup" target="_blank">?</a></label>
+      <input type="password" class="form-input" id="setup-apiKey" placeholder="AIza...">
+      <div style="font-size:11px;color:var(--text-500);margin-top:4px">Used for Beak photo OCR. Each team should use their own key.</div>
+    </div>
+    <div class="flex gap-2 mt-3">
+      <button class="btn btn-primary" style="flex:1" onclick="completeSetup()">Get Started</button>
+      <button class="btn btn-secondary" onclick="skipSetup()">Skip</button>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="mainApp" style="display:none">
+
+<header class="app-header">
+  <div class="logo-group">
+    <img class="logo-img" src="white.png.webp" alt="Petoskey Paladins 3618">
+    <div class="logo-txt">Shield<span>Log</span></div>
+  </div>
+  <div id="authBar" style="display:flex;align-items:center;gap:8px;padding:4px 10px;border-radius:8px;border:1px solid rgba(59,130,246,0.15);background:rgba(59,130,246,0.06);margin-right:8px;transition:all .3s;">
+    <span style="font-size:12px;color:var(--text-500)">Loading…</span>
+  </div>
+<nav class="header-nav">
+    <button class="nav-tab active" data-tab="log" onclick="showTab('log')">Log Match</button>
+    <button class="nav-tab" data-tab="batteries" onclick="showTab('batteries')">Batteries</button>
+    <button class="nav-tab" data-tab="ranking" onclick="showTab('ranking')">Ranking</button>
+    <button class="nav-tab" data-tab="cycling" onclick="showTab('cycling')">Cycling</button>
+    <button class="nav-tab" data-tab="analytics" onclick="showTab('analytics')">Analytics</button>
+  </nav>
+  <div class="nav-spacer"></div>
+  <div class="header-right">
+    <select class="year-sel" id="yearSel" onchange="onYearChange()"></select>
+    <div class="evt-switcher" id="evtSwitcher"></div>
+    <button class="settings-btn" onclick="showTab('settings')" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;stroke:var(--text-300)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- LOG MATCH -->
+<div id="view-log" class="view active">
+  <div class="card">
+    <div class="card-title">Match Entry</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Phase <span class="req">*</span></label>
+        <select class="form-select" id="matchPhase">
+          <option value="quals">Qualifiers</option>
+          <option value="playoffs">Playoffs</option>
+          <option value="finals">Finals</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Match # <span class="req">*</span></label>
+        <input type="number" class="form-input" id="matchNum" min="1" placeholder="e.g. 7">
+      </div>
+    </div>
+  </div>
+  <div class="card" id="battSelectCard">
+    <div class="card-title">Field Batteries</div>
+    <div id="battSelectors"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Before-Match Beak Reading</div>
+    <div class="beak-panel">
+      <div class="beak-panel-hdr"><span>PRE-MATCH</span><span class="ocr-status manual" id="befOcrSt">Manual Entry</span></div>
+      <div class="beak-panel-body">
+        <div class="beak-panel-inner">
+          <div class="beak-photo-col">
+            <div class="beak-photo-area" id="befPhotoArea">
+              <input type="file" accept="image/*" capture="environment" id="befPhotoIn" onchange="handlePhoto('bef',this)">
+              <div id="befPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
+            </div>
+            <button class="expand-btn" id="befExpandBtn" onclick="openLightbox('bef')" style="display:none">⤢ Enlarge</button>
+          </div>
+          <div class="beak-fields-col">
+            <div class="beak-fields">
+              <div class="beak-field"><div class="beak-field-lbl">Charge %</div><div class="beak-field-val"><input type="number" id="bef-Charge" placeholder="--" min="0" max="130" step="0.1" oninput="checkVerifyReady('bef')"></div><div class="conf-dot none" id="bef-Charge-dot"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">V0 (OCV)</div><div class="beak-field-val"><input type="number" id="bef-V0" placeholder="--" min="10" max="15" step="0.01" oninput="checkVerifyReady('bef')"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">V1 (1A)</div><div class="beak-field-val"><input type="number" id="bef-V1" placeholder="--" min="10" max="15" step="0.01" oninput="checkVerifyReady('bef')"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">V2 (18A)</div><div class="beak-field-val"><input type="number" id="bef-V2" placeholder="--" min="10" max="15" step="0.01" oninput="checkVerifyReady('bef')"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">Rint (Ohm)</div><div class="beak-field-val"><input type="number" id="bef-Rint" placeholder="--" min="0" max="0.1" step="0.001" oninput="checkVerifyReady('bef')"></div><div class="conf-dot none" id="bef-Rint-dot"></div></div>
+            </div>
+            <div class="verified-row" id="befVerRow">
+              <span class="verified-lbl" id="befVerLbl">Mark verified after reviewing OCR values</span>
+              <button class="btn btn-sm btn-secondary btn-verify-disabled" id="befVerBtn" onclick="verifyPanel('bef')" disabled data-tip="Fill all 5 Beak fields to enable">Mark Verified</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">After-Match Beak Reading</div>
+    <div class="beak-panel">
+      <div class="beak-panel-hdr"><span>POST-MATCH</span><span class="ocr-status manual" id="aftOcrSt">Manual Entry</span></div>
+      <div class="beak-panel-body">
+        <div class="beak-panel-inner">
+          <div class="beak-photo-col">
+            <div class="beak-photo-area" id="aftPhotoArea">
+              <input type="file" accept="image/*" capture="environment" id="aftPhotoIn" onchange="handlePhoto('aft',this)">
+              <div id="aftPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
+            </div>
+            <button class="expand-btn" id="aftExpandBtn" onclick="openLightbox('aft')" style="display:none">⤢ Enlarge</button>
+          </div>
+          <div class="beak-fields-col">
+            <div class="beak-fields">
+              <div class="beak-field"><div class="beak-field-lbl">Charge %</div><div class="beak-field-val"><input type="number" id="aft-Charge" placeholder="--" min="0" max="130" step="0.1" oninput="checkVerifyReady('aft')"></div><div class="conf-dot none" id="aft-Charge-dot"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">V0 (OCV)</div><div class="beak-field-val"><input type="number" id="aft-V0" placeholder="--" min="10" max="15" step="0.01" oninput="checkVerifyReady('aft')"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">V1 (1A)</div><div class="beak-field-val"><input type="number" id="aft-V1" placeholder="--" min="10" max="15" step="0.01" oninput="checkVerifyReady('aft')"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">V2 (18A)</div><div class="beak-field-val"><input type="number" id="aft-V2" placeholder="--" min="10" max="15" step="0.01" oninput="checkVerifyReady('aft')"></div></div>
+              <div class="beak-field"><div class="beak-field-lbl">Rint (Ohm)</div><div class="beak-field-val"><input type="number" id="aft-Rint" placeholder="--" min="0" max="0.1" step="0.001" oninput="checkVerifyReady('aft')"></div><div class="conf-dot none" id="aft-Rint-dot"></div></div>
+            </div>
+            <div class="verified-row" id="aftVerRow">
+              <span class="verified-lbl" id="aftVerLbl">Mark verified after reviewing OCR values</span>
+              <button class="btn btn-sm btn-secondary btn-verify-disabled" id="aftVerBtn" onclick="verifyPanel('aft')" disabled data-tip="Fill all 5 Beak fields to enable">Mark Verified</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="form-group">
+      <label class="form-label">Observer Notes</label>
+      <textarea class="form-textarea" id="obsNotes" placeholder="Disconnect, e-stop, robot barely ran..."></textarea>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-primary" style="flex:1" onclick="submitEntry()">Submit Entry</button>
+      <button class="btn btn-secondary" onclick="resetLog()">Clear</button>
+    </div>
+    <div id="submitMsg" style="display:none;margin-top:8px" class="info-box"></div>
+  </div>
+</div>
+
+<!-- BATTERIES -->
+<div id="view-batteries" class="view">
+  <div class="flex justify-between items-center mb-2">
+    <div class="sec-title" style="margin-bottom:0">Battery Registry</div>
+    <button class="btn btn-primary btn-sm" onclick="openModal('battModal')">+ Add Battery</button>
+  </div>
+  <div id="battList" class="mt-2"></div>
+</div>
+
+<!-- RANKING -->
+<div id="view-ranking" class="view">
+  <div class="sec-title">Performance Ranking</div>
+  <div id="rankList"></div>
+</div>
+
+<!-- CYCLING -->
+<div id="view-cycling" class="view">
+  <div class="sec-title">Cycling Schedule</div>
+  <div class="sub-tabs">
+    <button class="sub-tab active" onclick="setCyclePhase('quals',this)">Qualifiers</button>
+    <button class="sub-tab" onclick="setCyclePhase('playoffs',this)">Playoffs</button>
+    <button class="sub-tab" onclick="setCyclePhase('finals',this)">Finals</button>
+  </div>
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Total Matches</label>
+        <input type="number" class="form-input" id="totalMatchesInput" value="12" min="1" max="100" onchange="saveTotalMatches()">
+      </div>
+      <div style="align-self:flex-end;padding-bottom:12px">
+        <button class="btn btn-primary" onclick="genCycling()">Generate</button>
+      </div>
+    </div>
+  </div>
+  <div id="cycleList"></div>
+  <!-- Add battery in edit mode -->
+  <div id="cycleAddPanel" style="display:none" class="card mt-2">
+    <div class="card-title">Add Battery Slot</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Battery</label>
+        <select class="form-select" id="cycleAddSel"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Insert After Match #</label>
+        <input type="number" class="form-input" id="cycleAddAfter" min="0" value="0">
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-primary btn-sm" onclick="doAddCycleBatt()">Add</button>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cycleAddPanel').style.display='none'">Cancel</button>
+    </div>
+  </div>
+  <button id="cycleAddBtn" style="display:none;margin-top:8px" class="btn btn-blue btn-sm btn-full" onclick="openCycleAdd()">+ Add Battery Slot</button>
+</div>
+
+<!-- ANALYTICS -->
+<div id="view-analytics" class="view">
+  <div class="sec-title">Analytics</div>
+  <div class="batt-filter" id="battFilter"></div>
+  <div class="card"><div class="card-title">Rint Trend</div><div class="chart-wrap"><canvas id="rintChart"></canvas></div></div>
+  <div class="card"><div class="card-title">V2 Loaded Voltage (18A)</div><div class="chart-wrap"><canvas id="v2Chart"></canvas></div></div>
+  <div class="card"><div class="card-title">Post-Match Charge % Drop</div><div class="chart-wrap"><canvas id="chargeChart"></canvas></div></div>
+  <div class="card"><div class="card-title">Ah vs. Rint Scatter</div><div class="chart-wrap"><canvas id="scatterChart"></canvas></div></div>
+  <div class="card">
+    <div class="card-title">Full Match Log</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Phase</th><th>M#</th><th>Battery</th><th>Time</th><th>Src</th><th>Pre-Chg%</th><th>Pre-Rint</th><th>Pre-V2</th><th>Post-Chg%</th><th>Post-Rint</th><th>Post-V2</th><th>Verified</th></tr></thead>
+        <tbody id="matchLogBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div id="view-settings" class="view">
+  <div class="sec-title">Settings</div>
+  <div class="card"><div class="card-title">Team</div>
+    <div class="form-group"><label class="form-label">Team Number</label><input type="number" class="form-input" id="cfg-teamNum" placeholder="3618"></div>
+  </div>
+  <div class="card"><div class="card-title">Field & Charger</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Charger Slots</label><input type="number" class="form-input" id="cfg-chargerSlots" min="1"></div>
+      <div class="form-group"><label class="form-label">Batteries to Field / Match</label><input type="number" class="form-input" id="cfg-fieldBatts" min="1" max="6" onchange="initLogForm()"></div>
+    </div>
+    <div class="info-box" style="font-size:12px">Most FRC chargers will not re-engage below 95%. Do not pull batteries off early.</div>
+  </div>
+  <div class="card"><div class="card-title">Battery Thresholds</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Min Charge % to Field</label><input type="number" class="form-input" id="cfg-minCharge"></div>
+      <div class="form-group"><label class="form-label">Rint Cutoff (Ohm)</label><input type="number" class="form-input" id="cfg-rintCutoff" step="0.001"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Practice Batt Ah (min)</label><input type="number" class="form-input" id="cfg-practiceMin" step="0.5"></div>
+      <div class="form-group"><label class="form-label">Comp Batt Ah (min)</label><input type="number" class="form-input" id="cfg-compMin" step="0.5"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Playoffs Top N</label><input type="number" class="form-input" id="cfg-playoffN" min="2"></div>
+      <div class="form-group"><label class="form-label">Finals Top N</label><input type="number" class="form-input" id="cfg-finalsN" min="1"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Battery Drainer?</label>
+        <div class="toggle-wrap"><div class="toggle" id="cfg-drainerTgl" onclick="toggleDrainer()"></div><span class="text-sm text-muted" id="cfg-drainerLbl">No</span></div>
+      </div>
+      <div class="form-group" id="cfg-drainGrp" style="display:none"><label class="form-label">Drain Target Voltage</label><input type="number" class="form-input" id="cfg-drainVolt" step="0.1" min="11" max="13"></div>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">OCR</div>
+    <div class="form-group">
+      <label class="form-label">Google Vision API Key <a class="help-link" href="https://cloud.google.com/vision/docs/setup" target="_blank">?</a></label>
+      <input type="password" class="form-input" id="cfg-apiKey" placeholder="AIza...">
+      <div style="font-size:11px;color:var(--text-500);margin-top:4px">Each team should use their own key. Leave blank for manual entry.</div>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">Performance Score Weights</div>
+    <div class="info-box" style="font-size:12px">Sliders always sum to 100%.</div>
+    <div id="weightSliders"></div>
+    <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-500);text-align:right;margin-top:4px" id="weightTotal">Total: 100%</div>
+  </div>
+  <button class="btn btn-primary btn-full mb-2" onclick="saveSettings()">Save Settings</button>
+  <div id="settingsSaved" style="display:none" class="info-box ok">Settings saved.</div>
+  <div class="card mt-3"><div class="card-title">Data</div>
+    <div class="flex gap-2">
+      <button class="btn btn-secondary" style="flex:1" onclick="exportData()">Export JSON</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('importFile').click()">Import JSON</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(this)">
+    </div>
+    <button class="btn btn-danger btn-full mt-2" onclick="if(confirm('Delete ALL data for ALL years?'))clearAll()">Clear All Data</button>
+  </div>
+</div>
+
+</div><!-- /mainApp -->
+
+<!-- EDIT FAB -->
+<button class="edit-fab" id="editFab" onclick="toggleEdit()" style="display:none" title="Edit Mode">
+  <svg id="fabIcon" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+</button>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="battModal">
+  <div class="modal">
+    <div class="modal-title">Add Battery <button class="modal-close" onclick="closeModal('battModal')">x</button></div>
+    <div class="form-group"><label class="form-label">Battery Name <span class="req">*</span></label><input type="text" class="form-input" id="batt-name" placeholder="e.g. B-01"></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">CBA Ah Rating <span class="req">*</span></label><input type="number" class="form-input" id="batt-ah" placeholder="14.9" step="0.1"></div>
+      <div class="form-group"><label class="form-label">Year Acquired</label><input type="number" class="form-input" id="batt-year" placeholder="2025"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Brand</label>
+      <select class="form-select" id="batt-brand" onchange="onBrandChange()">
+        <option value="MK">MK Battery</option>
+        <option value="Interstate">Interstate</option>
+        <option value="Duracell">Duracell</option>
+        <option value="PowerCell">PowerCell</option>
+        <option value="Mighty Max">Mighty Max</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="form-group" id="batt-otherGrp" style="display:none"><label class="form-label">Brand Name</label><input type="text" class="form-input" id="batt-brandOther" placeholder="Brand" maxlength="100"></div>
+    <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-input" id="batt-notes" placeholder="Pre-comp notes..."></div>
+    <div class="form-group"><label class="form-label">Add to Active Roster?</label>
+      <div class="toggle-wrap"><div class="toggle on" id="batt-rosterTgl" onclick="this.classList.toggle('on')"></div><span class="text-sm text-muted">Yes</span></div>
+    </div>
+    <div style="height:10px"></div>
+    <button class="btn btn-primary btn-full" onclick="saveBattery()">Save Battery</button>
+    <div id="battSaveMsg" style="display:none;margin-top:10px" class="info-box"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="evtModal">
+  <div class="modal">
+    <div class="modal-title">New Event <button class="modal-close" onclick="closeModal('evtModal')">x</button></div>
+    <div class="form-group"><label class="form-label">Event Name <span class="req">*</span></label><input type="text" class="form-input" id="evt-name" placeholder="e.g. Kettering District"></div>
+    <div class="form-group"><label class="form-label">Mark as Live?</label>
+      <div class="toggle-wrap"><div class="toggle on" id="evt-liveTgl" onclick="this.classList.toggle('on')"></div><span class="text-sm text-muted">Yes</span></div>
+    </div>
+    <div class="form-group"><label class="form-label">Select Batteries</label><div id="evtBattChecks" style="display:grid;gap:6px;margin-top:6px"></div></div>
+    <div style="height:8px"></div>
+    <button class="btn btn-primary btn-full" onclick="saveEvent()">Create Event</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="battDetailModal">
+  <div class="modal">
+    <div class="modal-title"><span id="detailName"></span><button class="modal-close" onclick="closeModal('battDetailModal')">x</button></div>
+    <div id="battDetailContent"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="logDetailModal">
+  <div class="modal modal-xl">
+    <div class="modal-title">Match Entry Detail <button class="modal-close" onclick="closeModal('logDetailModal')">x</button></div>
+    <div id="logDetailContent"></div>
+  </div>
+</div>
+
+<!-- CONTEXT MENU -->
+<div id="ctxMenu" class="ctx-menu" style="display:none"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════
+const YEARS = ['2026','2025','2027','2028','2024'];
+const SORTED_YEARS = [...YEARS].sort((a,b)=>+b-+a); // descending
+let activeYear = String(new Date().getFullYear());
+let cyclePhase = 'quals';
+let editMode = false;
+let selBatts = null; // null = all
+let chartInst = {};
+let befVerified = false, aftVerified = false;
+let befPhotoTime = null;
+// Per-year cycling total matches
+let cycleMatchTotals = {}; // year-phase -> number
+
+function yearKey(y) { return y || activeYear; }
+
+// DB is keyed by year: DB[year] = { batteries, events, activeEventId, entries, cycling, settings }
+let DB = {};
+
+function defaultYearData() {
+  return {
+    batteries: [], events: [], activeEventId: null, entries: [],
+    cycling: { quals: [], playoffs: [], finals: [] },
+    settings: {
+      teamNum:'', chargerSlots:4, fieldBatts:2,
+      minCharge:110, rintCutoff:0.020, practiceMin:10, compMin:12,
+      playoffN:8, finalsN:3, hasDrainer:false, drainVolt:12.4, apiKey:'',
+      weights:{ rint:35, v2:25, charge:20, ah:20 }
+    }
+  };
+}
+
+function yd(y) {
+  y = y || activeYear;
+  if (!DB[y]) DB[y] = defaultYearData();
+  return DB[y];
+}
+
+function save() {
+  try { localStorage.setItem('sl3_db', JSON.stringify(DB)); localStorage.setItem('sl3_yr', activeYear); } catch(e){}
+  // Debounced push to Firestore so rapid saves don't spam writes
+  clearTimeout(window._saveTimer);
+  window._saveTimer = setTimeout(()=>{ if(window.pushToFirestore) window.pushToFirestore(); }, 800);
+}
+
+function load() {
+  try {
+    const r = localStorage.getItem('sl3_db');
+    if (r) DB = JSON.parse(r);
+    const y = localStorage.getItem('sl3_yr');
+    if (y) activeYear = y;
+  } catch(e){}
+  // ensure current year exists
+  yd(activeYear);
+}
+
+function cfg() { return yd().settings; }
+
+// ══════════════════════════════════════════════════════════
+// SETUP
+// ══════════════════════════════════════════════════════════
+function completeSetup() {
+  const s = cfg();
+  s.teamNum = document.getElementById('setup-teamNum').value;
+  s.chargerSlots = +document.getElementById('setup-chargerSlots').value || 4;
+  s.fieldBatts = +document.getElementById('setup-fieldBatts').value || 2;
+  s.minCharge = +document.getElementById('setup-minCharge').value || 110;
+  s.rintCutoff = +document.getElementById('setup-rintCutoff').value || 0.020;
+  s.apiKey = document.getElementById('setup-apiKey').value.trim();
+  save(); showMain();
+}
+function skipSetup() { showMain(); }
+function showMain() {
+  document.getElementById('setupScreen').style.display = 'none';
+  document.getElementById('mainApp').style.display = '';
+  document.getElementById('editFab').style.display = 'flex';
+  initApp();
+}
+
+// ══════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════
+function showTab(tab) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('view-'+tab).classList.add('active');
+  document.querySelector(`[data-tab="${tab}"]`)?.classList.add('active');
+  if(tab==='batteries') renderBatteries();
+  if(tab==='ranking') renderRanking();
+  if(tab==='cycling') renderCycling();
+  if(tab==='analytics') { buildBattFilter(); renderAllCharts(); renderMatchLog(); }
+  if(tab==='settings') loadSettings();
+  if(tab==='log') initLogForm();
+  // Show FAB only on tabs where edit makes sense
+  const fabTabs = ['cycling','analytics','ranking'];
+  document.getElementById('editFab').style.display = fabTabs.includes(tab) ? 'flex' : 'none';
+  if (!fabTabs.includes(tab)) setEditMode(false);
+}
+
+// ══════════════════════════════════════════════════════════
+// YEAR & EVENTS
+// ══════════════════════════════════════════════════════════
+function buildYearSelect() {
+  const sel = document.getElementById('yearSel');
+  sel.innerHTML = SORTED_YEARS.map(y=>`<option value="${y}" ${y===activeYear?'selected':''}>${y}</option>`).join('');
+}
+
+function onYearChange() {
+  activeYear = document.getElementById('yearSel').value;
+  yd(activeYear); // ensure exists
+  save();
+  renderEvtSwitcher();
+  refreshCurrentTab();
+}
+
+function getActiveEvt() {
+  const d = yd();
+  return d.events.find(e=>e.id===d.activeEventId) || d.events[0] || null;
+}
+
+function renderEvtSwitcher() {
+  const sw = document.getElementById('evtSwitcher');
+  const evts = yd().events;
+  sw.innerHTML = evts.map(e=>{
+    const isActive = e.id === yd().activeEventId;
+    const dot = e.live ? `<div class="live-dot"></div>` : '';
+    const cls = [isActive?'active':'', e.status==='completed'?'completed':''].join(' ');
+    return `<button class="evt-pill ${cls}" 
+      onclick="setActiveEvt('${e.id}')"
+      oncontextmenu="evtCtxMenu(event,'${e.id}')">${dot}${e.name}</button>`;
+  }).join('') + `<button class="add-evt-btn" onclick="openEvtModal()">+ Event</button>`;
+}
+
+function setActiveEvt(id) {
+  yd().activeEventId = id;
+  save(); renderEvtSwitcher(); initLogForm();
+}
+
+function evtCtxMenu(event, id) {
+  event.preventDefault();
+  const e = yd().events.find(x=>x.id===id);
+  if (!e) return;
+  const menu = document.getElementById('ctxMenu');
+  menu.style.display = '';
+  menu.style.left = event.clientX + 'px';
+  menu.style.top = event.clientY + 'px';
+  menu.innerHTML = `
+    <div class="ctx-item" onclick="setEvtLive('${id}');closeCtx()">Mark as Live</div>
+    <div class="ctx-item" onclick="setEvtCompleted('${id}');closeCtx()">Mark as Completed</div>
+    <div class="ctx-item danger" onclick="deleteEvt('${id}');closeCtx()">Delete Event</div>`;
+}
+function closeCtx() { document.getElementById('ctxMenu').style.display = 'none'; }
+document.addEventListener('click', ()=>closeCtx());
+
+function setEvtLive(id) {
+  yd().events.forEach(e=>e.live=false);
+  const e = yd().events.find(x=>x.id===id);
+  if(e){ e.live=true; e.status='live'; }
+  save(); renderEvtSwitcher();
+}
+function setEvtCompleted(id) {
+  const e = yd().events.find(x=>x.id===id);
+  if(e){ e.live=false; e.status='completed'; }
+  save(); renderEvtSwitcher();
+}
+function deleteEvt(id) {
+  yd().events = yd().events.filter(e=>e.id!==id);
+  if(yd().activeEventId===id) yd().activeEventId = yd().events[0]?.id || null;
+  save(); renderEvtSwitcher();
+}
+
+function openEvtModal() {
+  document.getElementById('evt-name').value='';
+  document.getElementById('evt-liveTgl').classList.add('on');
+  const cb = document.getElementById('evtBattChecks');
+  cb.innerHTML = yd().batteries.map(b=>`
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;background:var(--bg-800);border-radius:8px;border:1px solid var(--border)">
+      <input type="checkbox" value="${b.id}" checked style="accent-color:var(--accent);width:15px;height:15px">
+      <span style="flex:1">${b.name}</span><span class="badge badge-gray">${b.ah}Ah</span>
+    </label>`).join('');
+  openModal('evtModal');
+}
+
+function saveEvent() {
+  const name = document.getElementById('evt-name').value.trim();
+  if(!name) return;
+  const live = document.getElementById('evt-liveTgl').classList.contains('on');
+  const battIds = [...document.querySelectorAll('#evtBattChecks input:checked')].map(c=>c.value);
+  if(live) yd().events.forEach(e=>e.live=false);
+  const evt = { id: Date.now().toString(), name, batteryIds: battIds, live, status: live?'live':'upcoming', createdAt: new Date().toISOString() };
+  yd().events.push(evt);
+  yd().activeEventId = evt.id;
+  save(); closeModal('evtModal'); renderEvtSwitcher(); initLogForm();
+}
+
+// ══════════════════════════════════════════════════════════
+// LOG FORM
+// ══════════════════════════════════════════════════════════
+function initLogForm() {
+  const n = cfg().fieldBatts || 2;
+  const evt = getActiveEvt();
+  const roster = evt ? yd().batteries.filter(b=>evt.batteryIds.includes(b.id)) : yd().batteries;
+  const opts = roster.map(b=>`<option value="${b.id}">${b.name} (${b.ah}Ah)</option>`).join('');
+  const labels = ['Primary','Backup',...Array.from({length:n-2},(_,i)=>`Extra ${i+1}`)];
+  document.getElementById('battSelectors').innerHTML = Array.from({length:n},(_,i)=>`
+    <div class="form-group">
+      <label class="form-label">${labels[i]||'Battery '+(i+1)} Battery${i===0?'<span class="req">*</span>':''}</label>
+      <select class="form-select" id="battSel-${i}"><option value="">-- Select --</option>${opts}</select>
+    </div>`).join('');
+}
+
+function resetLog() {
+  document.getElementById('matchNum').value='';
+  ['bef-Charge','bef-V0','bef-V1','bef-V2','bef-Rint',
+   'aft-Charge','aft-V0','aft-V1','aft-V2','aft-Rint'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['befPhotoArea','aftPhotoArea'].forEach(id=>document.getElementById(id).classList.remove('has-img'));
+  document.getElementById('befPhotoContent').innerHTML='<div class="photo-label">Take / Upload Photo</div><div class="photo-hint">Photo timestamp used as match time</div>';
+  document.getElementById('aftPhotoContent').innerHTML='<div class="photo-label">Take / Upload Photo</div><div class="photo-hint">Rint may read 0.01-0.03 Ohm higher (normal)</div>';
+  document.getElementById('obsNotes').value='';
+  befVerified=aftVerified=false; befPhotoTime=null;
+  setVerState('bef',false); setVerState('aft',false);
+  checkVerifyReady('bef'); checkVerifyReady('aft');
+  document.getElementById('befOcrSt').className='ocr-status manual';document.getElementById('befOcrSt').textContent='Manual Entry';
+  document.getElementById('befExpandBtn').style.display='none';
+  document.getElementById('aftExpandBtn').style.display='none';
+  document.getElementById('aftOcrSt').className='ocr-status manual';document.getElementById('aftOcrSt').textContent='Manual Entry';
+  document.getElementById('submitMsg').style.display='none';
+  // Clear conf dots
+  ['bef-Charge-dot','bef-Rint-dot','aft-Charge-dot','aft-Rint-dot'].forEach(id=>{const d=document.getElementById(id);if(d)d.className='conf-dot none';});
+  initLogForm();
+}
+
+function handlePhoto(side, input) {
+  const file = input.files[0]; if(!file) return;
+  const areaEl = document.getElementById(side+'PhotoArea');
+  const contentEl = document.getElementById(side+'PhotoContent');
+  const statusEl = document.getElementById(side+'OcrSt');
+
+  if(side==='bef') extractExif(file).then(t=>{ befPhotoTime=t; });
+
+  const apiKey = cfg().apiKey;
+  if(apiKey){
+    statusEl.className='ocr-status processing'; statusEl.textContent='Processing...';
+  }
+
+  const fr = new FileReader();
+  fr.onload = e=>{
+    const dataUrl = e.target.result;
+    contentEl.innerHTML=`<img src="${dataUrl}" alt="Beak">`;
+    if(areaEl) areaEl.classList.add('has-img');
+    if(!window._pendingPhotos) window._pendingPhotos = {};
+    window._pendingPhotos[side] = dataUrl;
+    const expBtn=document.getElementById(side+'ExpandBtn');if(expBtn)expBtn.style.display='';
+    if(apiKey){
+      // Compress via canvas before sending — phone photos are often 5-12MB
+      // which exceeds Google Vision's 10MB request body limit after base64
+      const img = new Image();
+      img.onload = ()=>{
+        const MAX = 1600;
+        let w = img.naturalWidth, h = img.naturalHeight;
+        if(w > MAX || h > MAX){
+          if(w > h){ h = Math.round(h*(MAX/w)); w = MAX; }
+          else      { w = Math.round(w*(MAX/h)); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const compressed = canvas.toDataURL('image/jpeg', 0.85);
+        const b64 = compressed.split(',')[1];
+        runOCR(side, b64, apiKey, statusEl);
+      };
+      img.src = dataUrl;
+    } else {
+      statusEl.className='ocr-status manual'; statusEl.textContent='Manual Entry';
+    }
+  };
+  fr.readAsDataURL(file);
+}
+
+// ══════════════════════════════════════════════════════════
+// OCR PARSING — Full robust parser (ported from GAS script)
+// ══════════════════════════════════════════════════════════
+
+async function runOCR(side, b64, apiKey, statusEl) {
+  try {
+    // Send BOTH TEXT_DETECTION and DOCUMENT_TEXT_DETECTION in one request
+    const resp = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({requests:[
+        {image:{content:b64},features:[{type:'TEXT_DETECTION',maxResults:50},{type:'DOCUMENT_TEXT_DETECTION',maxResults:1}],imageContext:{languageHints:['en']}}
+      ]})
+    });
+    if(!resp.ok) throw new Error('API error '+resp.status);
+    const data = await resp.json();
+    const r0 = data.responses?.[0];
+    if(!r0) throw new Error('No response');
+
+    // Collect text from both annotation methods
+    const textDet = r0.textAnnotations?.[0]?.description || '';
+    const docDet = r0.fullTextAnnotation?.text || r0.textAnnotations?.[0]?.description || '';
+    const words = (r0.textAnnotations||[]).slice(1).map(a=>a.description).join(' ');
+
+    const flat1 = textDet.replace(/\n/g,' ').replace(/\s+/g,' ');
+    const flat2 = docDet.replace(/\n/g,' ').replace(/\s+/g,' ');
+    const flat3 = words;
+
+    if(!flat1&&!flat2&&!flat3) throw new Error('No text detected');
+
+    const best = getBestParse(flat1, flat2, flat3);
+    const conf = calcConfidence(best);
+    applyParsedResult(side, best, conf);
+    statusEl.className='ocr-status success';
+    statusEl.textContent=`OCR Done (${conf}%) — Review Values`;
+  } catch(e) {
+    statusEl.className='ocr-status failed';
+    statusEl.textContent='OCR Failed — Enter Manually';
+    console.warn('OCR error:',e);
+  }
+}
+
+function getBestParse(flat1, flat2, flat3) {
+  const sources=[flat1,flat2,flat3];
+  let best=null, bestScore=-1;
+  for(const text of sources){
+    const charge=extractCharge(text);
+    const volts=extractAllVoltages(text);
+    const rint=extractRint(text);
+    let score=0;
+    if(charge!=='N/A')score++;
+    if(volts[0]!=='N/A')score++;
+    if(volts[1]!=='N/A')score++;
+    if(volts[2]!=='N/A')score++;
+    if(rint!=='N/A')score++;
+    if(score>bestScore){bestScore=score;best={charge,v0:volts[0],v1:volts[1],v2:volts[2],rint};}
+  }
+  // Fill any N/A slots from other sources
+  for(const text of sources){
+    const volts=extractAllVoltages(text);
+    if(best.charge==='N/A')best.charge=extractCharge(text);
+    if(best.v0==='N/A')best.v0=volts[0];
+    if(best.v1==='N/A')best.v1=volts[1];
+    if(best.v2==='N/A')best.v2=volts[2];
+    if(best.rint==='N/A')best.rint=extractRint(text);
+  }
+  return best;
+}
+
+function extractCharge(text){
+  // Pattern: digits followed by %
+  let m=text.match(/[Cc]harge\s*[:;.,]?\s*(\d{1,3}(?:\.\d)?)\s*%?/);
+  if(m)return m[1];
+  // Beak shows "XXX%" or "XX%" — allow up to 130
+  m=text.match(/\b(\d{1,3})\s*%/);
+  if(m&&parseInt(m[1])<=130)return m[1];
+  return 'N/A';
+}
+
+function extractAllVoltages(text){
+  const results=['N/A','N/A','N/A'];
+
+  // V0 — label variants: V0, VO, U0, UO
+  let m=text.match(/[VUvu][Oo0]\s*[:;.,!|]?\s*(\d{1,2}\.\d{2,4})/i);
+  if(!m)m=text.match(/[VUvu][Oo0]\s*[:;.,!|]?\s*(\d{2})\s+(\d{3})/i);
+  if(!m)m=text.match(/[VUvu][Oo0]\s*[:;.,!|]?\s*(\d{3,4})/i);
+  results[0]=voltFromMatch(m);
+
+  // V1
+  m=text.match(/[VUvu]1\s*[:;.,!|]?\s*(\d{1,2}\.\d{2,4})/i);
+  if(!m)m=text.match(/[VUvu]1\s*[:;.,!|]?\s*(\d{2})\s+(\d{3})/i);
+  if(!m)m=text.match(/[VUvu]1\s*[:;.,!|]?\s*(\d{3,4})/i);
+  results[1]=voltFromMatch(m);
+
+  // V2
+  m=text.match(/[VUvu]2\s*[:;.,!|]?\s*(\d{1,2}\.\d{2,4})/i);
+  if(!m)m=text.match(/[VUvu]2\s*[:;.,!|]?\s*(\d{2})\s+(\d{3})/i);
+  if(!m)m=text.match(/[VUvu]2\s*[:;.,!|]?\s*(\d{3,4})/i);
+  results[2]=voltFromMatch(m);
+
+  // Fallback: collect all voltage-range numbers positionally
+  const anyMissing=results.some(r=>r==='N/A');
+  if(anyMissing){
+    const cands=collectVoltageCandidates(text);
+    let ci=0;
+    for(let r=0;r<3;r++){
+      if(results[r]!=='N/A'){ci++;}
+      else if(ci<cands.length){results[r]=cands[ci++];}
+    }
+  }
+
+  // Sanity: V0>=V1>=V2 within noise
+  const NOISE=0.05;
+  const vs=results.map(r=>r!=='N/A'?parseFloat(r):null);
+  if(vs[0]!==null&&vs[1]!==null&&vs[1]>vs[0]+NOISE)results[1]='N/A';
+  if(vs[1]!==null&&vs[2]!==null&&vs[2]>vs[1]+NOISE)results[2]='N/A';
+
+  return results;
+}
+
+function voltFromMatch(m){
+  if(!m)return 'N/A';
+  let voltage;
+  if(m[2]){
+    const frac=m[2].length===2?m[2]+'0':m[2];
+    voltage=m[1]+'.'+frac;
+  } else if(m[1]){
+    if(m[1].indexOf('.')!==-1){voltage=m[1];}
+    else if(m[1].length===3){voltage='12.'+m[1];}
+    else if(m[1].length===4){voltage=m[1].substring(0,2)+'.'+m[1].substring(2);}
+    else{voltage=m[1];}
+  } else return 'N/A';
+  const v=parseFloat(voltage);
+  return(!isNaN(v)&&v>=10&&v<=15)?voltage:'N/A';
+}
+
+function collectVoltageCandidates(text){
+  const found=[];const seen={};
+  const pattern=/(\d{1,2}\.\d{2,4})|(\d{2})\s+(\d{3})|(\d{3})/g;
+  let m;
+  while((m=pattern.exec(text))!==null){
+    let val;
+    if(m[1])val=m[1];
+    else if(m[2]&&m[3])val=m[2]+'.'+m[3];
+    else if(m[4]){const c='12.'+m[4];if(parseFloat(c)>=12.0&&parseFloat(c)<=13.5)val=c;}
+    if(val){const p=parseFloat(val);if(p>=10&&p<=15&&!seen[val]){seen[val]=true;found.push(val);}}
+  }
+  return found;
+}
+
+function extractRint(text){
+  const patterns=[
+    /[Rr]int\s*[:;.,]?\s*(\d+\.\d+)/,
+    /[Rr]\s*[il1]?\s*[nm]?\s*[t7f]\s*[:;.,]?\s*(\d+\.\d+)/,
+    /(\d+\.\d+)\s*[Oo]hms?/,
+    /(\d+\.\d+)\s*[Ωω]/,
+    /\b(0\.0[0-9]{2})\b/
+  ];
+  for(const pat of patterns){
+    const match=text.match(pat);
+    if(match){
+      const num=parseFloat(match[1]);
+      if(num>=0.001&&num<=0.200)return match[1];
+    }
+  }
+  return 'N/A';
+}
+
+function calcConfidence(result){
+  let score=0;
+  if(result.charge!=='N/A')score+=20;
+  if(result.v0!=='N/A')score+=20;
+  if(result.v1!=='N/A')score+=20;
+  if(result.v2!=='N/A')score+=20;
+  if(result.rint!=='N/A')score+=20;
+  if(result.charge!=='N/A'&&parseInt(result.charge)<=130)score+=5;
+  if(result.v0!=='N/A'&&result.v1!=='N/A'&&result.v2!=='N/A'){
+    const v0=parseFloat(result.v0),v1=parseFloat(result.v1),v2=parseFloat(result.v2);
+    if(Math.max(v0,v1,v2)-Math.min(v0,v1,v2)<1.0)score+=10;
+    if(v1>v0+0.05)score-=15;
+    if(v2>v1+0.05)score-=15;
+  }
+  if(result.rint!=='N/A'&&parseFloat(result.rint)<=0.100)score+=5;
+  return Math.min(Math.max(score,0),100);
+}
+
+function applyParsedResult(side, result, conf) {
+  const confClass=conf>=80?'hi':conf>=60?'med':'lo';
+  const fields=[
+    {id:side+'-Charge',val:result.charge,conf:confClass},
+    {id:side+'-V0',val:result.v0,conf:'med'},
+    {id:side+'-V1',val:result.v1,conf:'med'},
+    {id:side+'-V2',val:result.v2,conf:'med'},
+    {id:side+'-Rint',val:result.rint,conf:confClass}
+  ];
+  fields.forEach(f=>{
+    if(f.val!=='N/A')setOcrField(f.id,f.val,f.conf);
+  });
+  checkVerifyReady(side);
+}
+
+function setOcrField(id, val, conf) {
+  const el = document.getElementById(id); if(el) el.value = val;
+  const dot = document.getElementById(id+'-dot');
+  if(dot){ dot.className='conf-dot '+conf; }
+  const field = el?.closest('.beak-field');
+  if(field){ field.className='beak-field conf-'+conf; }
+}
+
+function extractExif(file) {
+  return new Promise(resolve=>{
+    const r = new FileReader();
+    r.onload = e=>{
+      try {
+        const arr = new Uint8Array(e.target.result);
+        for(let i=0;i<Math.min(arr.length,65536);i++){
+          if(arr[i]===0x32&&i+18<arr.length){
+            const c=String.fromCharCode(...arr.slice(i,i+19));
+            if(/^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}$/.test(c)){
+              resolve(new Date(c.replace(/^(\d{4}):(\d{2}):(\d{2})/,'$1-$2-$3'))); return;
+            }
+          }
+        }
+        resolve(new Date());
+      }catch{resolve(new Date());}
+    };
+    r.readAsArrayBuffer(file.slice(0,65536));
+  });
+}
+
+function beakFieldsFilled(side){
+  const ids=[side+'-Charge',side+'-V0',side+'-V1',side+'-V2',side+'-Rint'];
+  return ids.every(id=>{const el=document.getElementById(id);return el&&el.value.trim()!=='';});
+}
+
+function checkVerifyReady(side){
+  const btn=document.getElementById(side+'VerBtn');
+  if(!btn)return;
+  const filled=beakFieldsFilled(side);
+  const already=(side==='bef'?befVerified:aftVerified);
+  if(already)return;
+  if(filled){
+    btn.disabled=false;
+    btn.classList.remove('btn-verify-disabled');
+    btn.removeAttribute('data-tip');
+    btn.style.cursor='';
+  } else {
+    btn.disabled=true;
+    btn.classList.add('btn-verify-disabled');
+    btn.setAttribute('data-tip','Fill all 5 Beak fields to enable');
+    btn.style.cursor='not-allowed';
+  }
+}
+
+function verifyPanel(side) {
+  if(!beakFieldsFilled(side)){return;}
+  if(side==='bef'){befVerified=true;setVerState('bef',true);}
+  else{aftVerified=true;setVerState('aft',true);}
+}
+function setVerState(side,ok) {
+  const row=document.getElementById(side+'VerRow');
+  const lbl=document.getElementById(side+'VerLbl');
+  const btn=document.getElementById(side+'VerBtn');
+  if(ok){
+    row.classList.add('ok');lbl.textContent='Verified ✓';lbl.className='verified-lbl ok';
+    btn.textContent='Verified';btn.className='btn btn-sm btn-success';
+    btn.disabled=false;btn.classList.remove('btn-verify-disabled');
+  } else {
+    row.classList.remove('ok');lbl.textContent='Mark verified after reviewing OCR values';lbl.className='verified-lbl';
+    btn.textContent='Mark Verified';btn.className='btn btn-sm btn-secondary';
+    checkVerifyReady(side);
+  }
+}
+
+function getBeakVals(pfx) {
+  const g=id=>{const el=document.getElementById(pfx+id);if(!el||!el.value)return null;return parseFloat(el.value)||null;};
+  return {charge:g('Charge'),v0:g('V0'),v1:g('V1'),v2:g('V2'),rint:g('Rint')};
+}
+
+function submitEntry() {
+  const matchNum = document.getElementById('matchNum').value.trim();
+  if(!matchNum){showMsg('submitMsg','Match number is required.','warn');return;}
+  const primaryId = document.getElementById('battSel-0')?.value;
+  if(!primaryId){showMsg('submitMsg','Primary battery is required.','warn');return;}
+
+  const n = cfg().fieldBatts||2;
+  const battIds = Array.from({length:n},(_,i)=>document.getElementById('battSel-'+i)?.value||null);
+
+  const verifiedBoth = befVerified && aftVerified;
+
+  const entry = {
+    id: Date.now().toString(),
+    matchNum: parseInt(matchNum),
+    phase: document.getElementById('matchPhase').value,
+    battIds, primaryBattId: primaryId,
+    before: getBeakVals('bef-'),
+    after: getBeakVals('aft-'),
+    notes: document.getElementById('obsNotes').value.trim(),
+    timestamp: befPhotoTime?befPhotoTime.toISOString():new Date().toISOString(),
+    timestampSource: befPhotoTime?'exif':'submit',
+    eventId: yd().activeEventId||null,
+    verified: verifiedBoth,
+    befVerified, aftVerified,
+    beforePhotoData: window._pendingPhotos?.bef || null,
+    afterPhotoData: window._pendingPhotos?.aft || null,
+    createdAt: new Date().toISOString()
+  };
+  yd().entries.push(entry);
+  window._pendingPhotos = {};
+  save();
+
+  const bName = yd().batteries.find(b=>b.id===primaryId)?.name||'?';
+  showMsg('submitMsg',`Match ${matchNum} logged for ${bName}.`+(verifiedBoth?'' :' (Unverified)'),'ok');
+  setTimeout(resetLog,1800);
+}
+
+function showMsg(id,msg,type){
+  const el=document.getElementById(id);el.style.display='';
+  el.className=type==='warn'?'info-box warn':type==='ok'?'info-box ok':'info-box';
+  el.textContent=msg;
+}
+
+// ══════════════════════════════════════════════════════════
+// BATTERIES
+// ══════════════════════════════════════════════════════════
+function getBattCat(ah){const s=cfg();if(ah<s.practiceMin)return'bad';if(ah<s.compMin)return'practice';return'comp';}
+
+function onBrandChange(){
+  document.getElementById('batt-otherGrp').style.display=document.getElementById('batt-brand').value==='Other'?'':'none';
+}
+
+function saveBattery(){
+  const name=document.getElementById('batt-name').value.trim();
+  const ah=parseFloat(document.getElementById('batt-ah').value);
+  if(!name||isNaN(ah)){showMsg('battSaveMsg','Name and Ah required.','warn');return;}
+  const brand=document.getElementById('batt-brand').value;
+  const batt={
+    id:Date.now().toString(),name,ah,
+    year:+document.getElementById('batt-year').value||new Date().getFullYear(),
+    brand:brand==='Other'?document.getElementById('batt-brandOther').value.trim().slice(0,100)||'Other':brand,
+    notes:document.getElementById('batt-notes').value.trim(),
+    createdAt:new Date().toISOString()
+  };
+  yd().batteries.push(batt);
+  if(document.getElementById('batt-rosterTgl').classList.contains('on')){
+    const evt=getActiveEvt();
+    if(evt&&!evt.batteryIds.includes(batt.id)) evt.batteryIds.push(batt.id);
+  }
+  save();closeModal('battModal');renderBatteries();initLogForm();
+}
+
+function getRosterBatts(){
+  const evt=getActiveEvt();
+  return evt ? yd().batteries.filter(b=>evt.batteryIds.includes(b.id)) : yd().batteries;
+}
+
+function getEntriesForBatt(id){
+  const evt=getActiveEvt();
+  return yd().entries.filter(e=>e.primaryBattId===id&&(!evt||e.eventId===evt.id)).sort((a,b)=>a.matchNum-b.matchNum);
+}
+
+function renderBatteries(){
+  const el=document.getElementById('battList');
+  const rosterIds=(getActiveEvt()?.batteryIds)||[];
+  const sorted=[...yd().batteries].sort((a,b)=>b.ah-a.ah);
+  if(!sorted.length){el.innerHTML='<div class="empty"><div class="empty-title">No Batteries</div><div>Add batteries from CBA test data.</div></div>';return;}
+  el.innerHTML=sorted.map(b=>{
+    const cat=getBattCat(b.ah);
+    const entries=getEntriesForBatt(b.id);
+    const latestRint=entries.length?entries[entries.length-1].after?.rint:null;
+    const rintWarn=latestRint!=null&&latestRint>cfg().rintCutoff;
+    const score=computeScore(b);
+    const inRoster=rosterIds.includes(b.id);
+    const barColor=score>75?'var(--green)':score>45?'var(--yellow)':'var(--red)';
+    const catBadge=cat==='comp'?'badge-tier-a':cat==='practice'?'badge-blue':'badge-red';
+    const catLbl=cat==='comp'?'COMP':cat==='practice'?'PRACTICE':'RETIRED';
+    return `<div class="batt-card${rintWarn?' warn':''}" onclick="openBattDetail('${b.id}')">
+      <div class="batt-card-top">
+        <div><div class="batt-name">${b.name}</div><div class="batt-meta">${b.brand} &middot; ${b.year}</div></div>
+        <div class="flex gap-2" style="flex-wrap:wrap;justify-content:flex-end">
+          ${rintWarn?`<span class="badge badge-yellow">RINT HIGH</span>`:''}
+          <span class="badge ${catBadge}">${catLbl}</span>
+          ${inRoster?`<span class="badge badge-green">ON ROSTER</span>`:''}
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-cell"><div class="stat-lbl">CBA Ah</div><div class="stat-val ${ahColor(b.ah)}">${b.ah.toFixed(1)}</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Matches</div><div class="stat-val">${entries.length}</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Avg Rint</div><div class="stat-val ${latestRint!=null?(latestRint>cfg().rintCutoff?'bad':latestRint>0.015?'warn':'good'):''}">${latestRint!=null?latestRint.toFixed(3):'--'}</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Score</div><div class="stat-val">${entries.length?score.toFixed(0):'--'}</div></div>
+      </div>
+      ${entries.length?`<div class="score-bar-wrap"><div class="score-bar" style="width:${score}%;background:${barColor}"></div></div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function ahColor(ah){const s=cfg();return ah>=s.compMin?'good':ah>=s.practiceMin?'warn':'bad';}
+
+function openBattDetail(id){
+  const b=yd().batteries.find(x=>x.id===id);if(!b)return;
+  const entries=getEntriesForBatt(id);
+  const warnings=getWarnings(b);
+  const score=computeScore(b);
+  const cat=getBattCat(b.ah);
+  document.getElementById('detailName').textContent=b.name;
+  const catBadge=cat==='comp'?'badge-tier-a':cat==='practice'?'badge-blue':'badge-red';
+  const catLbl=cat==='comp'?'COMP':cat==='practice'?'PRACTICE':'RETIRED';
+  document.getElementById('battDetailContent').innerHTML=`
+    <div class="flex gap-2 mb-2" style="flex-wrap:wrap">
+      <span class="badge ${catBadge}">${catLbl}</span>
+      ${warnings.map(w=>`<span class="badge badge-yellow">${w}</span>`).join('')}
+    </div>
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat-cell"><div class="stat-lbl">CBA Ah</div><div class="stat-val">${b.ah}</div></div>
+      <div class="stat-cell"><div class="stat-lbl">Brand</div><div class="stat-val" style="font-size:12px">${b.brand}</div></div>
+      <div class="stat-cell"><div class="stat-lbl">Year</div><div class="stat-val">${b.year}</div></div>
+      <div class="stat-cell"><div class="stat-lbl">Score</div><div class="stat-val ${score>75?'good':score>45?'warn':'bad'}">${entries.length?score.toFixed(1):'--'}</div></div>
+    </div>
+    ${b.notes?`<div class="info-box" style="font-size:12px;margin-bottom:14px">${b.notes}</div>`:''}
+    ${!entries.length?'<div class="empty" style="padding:20px 0">No match entries yet.</div>':`
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>M#</th><th>Pre-Chg</th><th>Pre-Rint</th><th>Post-Chg</th><th>Post-Rint</th><th>V2</th></tr></thead>
+      <tbody>${entries.map(e=>`<tr>
+        <td class="mono">${e.matchNum}</td>
+        <td class="mono">${e.before?.charge!=null?e.before.charge.toFixed(1)+'%':'--'}</td>
+        <td class="mono">${e.before?.rint!=null?e.before.rint.toFixed(3):'--'}</td>
+        <td class="mono">${e.after?.charge!=null?e.after.charge.toFixed(1)+'%':'--'}</td>
+        <td class="mono" style="color:${e.after?.rint>cfg().rintCutoff?'var(--red)':''}">${e.after?.rint!=null?e.after.rint.toFixed(3):'--'}</td>
+        <td class="mono">${e.after?.v2!=null?e.after.v2.toFixed(2):'--'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`}
+    <div class="divider"></div>
+    <div class="flex gap-2">
+      <button class="btn btn-sm btn-blue" onclick="toggleRoster('${id}')">Toggle Roster</button>
+      <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?')){deleteBatt('${id}')}">Delete</button>
+    </div>`;
+  openModal('battDetailModal');
+}
+
+function toggleRoster(id){
+  const evt=getActiveEvt();if(!evt){alert('No active event.');return;}
+  const i=evt.batteryIds.indexOf(id);
+  if(i>-1)evt.batteryIds.splice(i,1);else evt.batteryIds.push(id);
+  save();closeModal('battDetailModal');renderBatteries();
+}
+function deleteBatt(id){
+  yd().batteries=yd().batteries.filter(b=>b.id!==id);
+  yd().events.forEach(e=>{e.batteryIds=e.batteryIds.filter(x=>x!==id);});
+  save();closeModal('battDetailModal');renderBatteries();
+}
+
+// ══════════════════════════════════════════════════════════
+// SCORING
+// ══════════════════════════════════════════════════════════
+function computeScore(battery){
+  const entries=getEntriesForBatt(battery.id);
+  if(!entries.length)return 0;
+  const s=cfg();const w=s.weights;let score=0;
+  const rints=entries.map(e=>e.after?.rint).filter(v=>v!=null);
+  if(rints.length){const avg=rints.reduce((a,b)=>a+b,0)/rints.length;score+=(w.rint/100)*Math.max(0,Math.min(100,(1-avg/s.rintCutoff)*100));}
+  const v2s=entries.map(e=>e.after?.v2).filter(v=>v!=null);
+  if(v2s.length){const avg=v2s.reduce((a,b)=>a+b,0)/v2s.length;score+=(w.v2/100)*Math.max(0,Math.min(100,(avg-11.0)/2.5*100));}
+  const drops=entries.map(e=>{if(e.before?.charge!=null&&e.after?.charge!=null)return(e.before.charge-e.after.charge)/e.before.charge;return null;}).filter(v=>v!=null);
+  if(drops.length){const avg=drops.reduce((a,b)=>a+b,0)/drops.length;score+=(w.charge/100)*Math.max(0,Math.min(100,(1-avg/0.5)*100));}
+  const maxAh=Math.max(...yd().batteries.map(b=>b.ah),1);
+  score+=(w.ah/100)*(battery.ah/maxAh*100);
+  return Math.min(100,Math.max(0,score));
+}
+
+function getWarnings(b){
+  const warnings=[];const entries=getEntriesForBatt(b.id);
+  const latestRint=entries.length?entries[entries.length-1].after?.rint:null;
+  if(latestRint!=null&&latestRint>cfg().rintCutoff)warnings.push(`Rint ${latestRint.toFixed(3)} over cutoff`);
+  if(entries.slice(-3).filter(e=>e.after?.charge!=null&&e.after.charge<50).length>=2)warnings.push('Low post-match charge recently');
+  return warnings;
+}
+
+// ══════════════════════════════════════════════════════════
+// RANKING
+// ══════════════════════════════════════════════════════════
+function renderRanking(){
+  const el=document.getElementById('rankList');
+  const batts=getRosterBatts().filter(b=>getEntriesForBatt(b.id).length>0);
+  if(!batts.length){el.innerHTML='<div class="empty"><div class="empty-title">No Match Data</div><div>Log entries to build rankings.</div></div>';return;}
+  const ranked=batts.map(b=>({b,score:computeScore(b),warnings:getWarnings(b)})).sort((a,b)=>b.score-a.score);
+  el.innerHTML=ranked.map((item,i)=>{
+    const{b,score,warnings}=item;
+    const entries=getEntriesForBatt(b.id);
+    const latestRint=entries.length?entries[entries.length-1].after?.rint:null;
+    const rintOver=latestRint!=null&&latestRint>cfg().rintCutoff;
+    const barColor=score>75?'var(--green)':score>45?'var(--yellow)':'var(--red)';
+    const tier=score>75?'badge-tier-a':score>45?'badge-tier-b':'badge-tier-c';
+    const tierLbl=score>75?'TIER A':score>45?'TIER B':'TIER C';
+    const nums=['gold','silver','bronze'];
+    return `<div class="rank-card${warnings.length?' warn':''}" onclick="openBattDetail('${b.id}')">
+      <div class="rank-num ${nums[i]||''}">${i+1}</div>
+      <div style="flex:1">
+        <div class="flex items-center justify-between">
+          <div class="batt-name" style="font-size:18px">${b.name}</div>
+          <div class="flex gap-2">${warnings.length?`<span class="badge badge-yellow">WARN</span>`:''}<span class="badge ${tier}">${tierLbl}</span></div>
+        </div>
+        <div class="flex gap-3 mt-1 text-xs mono text-muted">
+          <span>${b.ah}Ah</span>
+          <span style="color:${rintOver?'var(--red)':''}">Rint: ${latestRint!=null?latestRint.toFixed(3):'--'}${rintOver?' *':''}</span>
+          <span>${entries.length} matches</span>
+        </div>
+        <div class="score-bar-wrap mt-2"><div class="score-bar" style="width:${score}%;background:${barColor}"></div></div>
+        <div class="flex justify-between mt-1 text-xs mono"><span class="text-muted">Score</span><span style="color:${barColor};font-weight:700">${score.toFixed(1)}</span></div>
+        ${warnings.map(w=>`<div class="text-xs" style="color:var(--yellow);margin-top:3px">${w}</div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════
+// CYCLING
+// ══════════════════════════════════════════════════════════
+function cyclePhaseTotalKey(){return activeYear+'-'+cyclePhase;}
+
+function saveTotalMatches(){
+  const v=+document.getElementById('totalMatchesInput').value||12;
+  cycleMatchTotals[cyclePhaseTotalKey()]=v;
+  save();
+}
+
+function loadTotalMatchesInput(){
+  const v=cycleMatchTotals[cyclePhaseTotalKey()]||12;
+  document.getElementById('totalMatchesInput').value=v;
+}
+
+function setCyclePhase(ph,el){
+  cyclePhase=ph;
+  document.querySelectorAll('.sub-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  loadTotalMatchesInput();
+  renderCycling();
+}
+
+function renderCycling(){
+  loadTotalMatchesInput();
+  const cycle=(yd().cycling[cyclePhase])||[];
+  const el=document.getElementById('cycleList');
+  if(!cycle.length){el.innerHTML='<div class="empty"><div class="empty-title">No Schedule</div><div>Click Generate to create a rotation.</div></div>';return;}
+
+  const roster=getRosterBatts();
+  const opts=roster.map(b=>`<option value="${b.id}">${b.name}</option>`).join('');
+
+  el.innerHTML=cycle.map((row,idx)=>{
+    const primBatt=yd().batteries.find(b=>b.id===row.battId);
+    const backBatt=yd().batteries.find(b=>b.id===row.backupId);
+    const editControls=editMode?`
+      <div class="drag-handle" title="Drag to reorder">⠿</div>
+      <button class="btn btn-sm btn-danger" style="padding:4px 8px" onclick="removeCycleRow(${idx})">✕</button>`:
+      '';
+    const draggable=editMode?`draggable="true" ondragstart="dragStart(event,${idx})" ondragover="dragOver(event,${idx})" ondrop="dragDrop(event,${idx})" ondragend="dragEnd(event)"`:'';
+    const primSel=editMode?
+      `<select class="form-select" style="font-size:13px;padding:4px 8px;margin-top:3px" onchange="updateCycleBatt(${idx},'primary',this.value)">
+        ${roster.map(b=>`<option value="${b.id}"${b.id===row.battId?' selected':''}>${b.name}</option>`).join('')}
+       </select>`:
+      `<div class="cycle-batt">${primBatt?.name||'--'}</div>`;
+    const backSel=editMode?
+      `<select class="form-select" style="font-size:13px;padding:4px 8px;margin-top:3px" onchange="updateCycleBatt(${idx},'backup',this.value)">
+        <option value="">-- None --</option>
+        ${roster.map(b=>`<option value="${b.id}"${b.id===row.backupId?' selected':''}>${b.name}</option>`).join('')}
+       </select>`:
+      `<div class="cycle-batt">${backBatt?.name||'--'}</div>`;
+
+    return `<div class="cycle-row" id="crow-${idx}" data-idx="${idx}" ${draggable}>
+      ${editControls}
+      <div class="cycle-match-num">Q${row.matchNum}</div>
+      <div class="cycle-slot"><div class="cycle-role">Primary</div>${primSel}${getBattCat(primBatt?.ah||0)==='practice'?`<span class="badge badge-blue" style="font-size:9px;margin-top:3px;display:inline-block">PRACTICE</span>`:''}</div>
+      <div class="cycle-slot"><div class="cycle-role">Backup</div>${backSel}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('cycleAddBtn').style.display=editMode?'':'none';
+  document.getElementById('cycleAddPanel').style.display='none';
+}
+
+function genCycling(){
+  const total=+document.getElementById('totalMatchesInput').value||12;
+  cycleMatchTotals[cyclePhaseTotalKey()]=total;
+  const s=cfg();
+  const roster=getRosterBatts();
+  let comp=roster.filter(b=>getBattCat(b.ah)==='comp');
+  const practice=roster.filter(b=>getBattCat(b.ah)==='practice');
+  const fieldN=s.fieldBatts||2;
+
+  if(cyclePhase!=='quals'){
+    const ranked=comp.map(b=>({b,score:computeScore(b),warnings:getWarnings(b)})).sort((a,z)=>z.score-a.score);
+    const N=cyclePhase==='playoffs'?s.playoffN:s.finalsN;
+    comp=ranked.filter(r=>!r.warnings.length).slice(0,N).map(r=>r.b);
+  } else {
+    comp=comp.sort((a,b)=>b.ah-a.ah);
+  }
+
+  if(!comp.length){alert('No eligible competition batteries.');return;}
+  const schedule=[];
+  let ci=0,pi=0;
+  for(let m=1;m<=total;m++){
+    const battId=comp[ci%comp.length].id;
+    let backupId=null;
+    if(fieldN>1){
+      if(cyclePhase==='quals'&&practice.length&&m%4===0){backupId=practice[pi%practice.length].id;pi++;}
+      else{backupId=comp[(ci+1)%comp.length].id;}
+    }
+    schedule.push({matchNum:m,battId,backupId});
+    ci++;
+  }
+  yd().cycling[cyclePhase]=schedule;
+  save();renderCycling();
+}
+
+// Drag-drop for cycling reorder — vertical only, moves full row
+let dragIdx=null;
+let _dragGhostEl=null;
+
+function dragStart(e,idx){
+  dragIdx=idx;
+  // Clone the whole row as ghost
+  const row=document.getElementById('crow-'+idx);
+  row.classList.add('dragging');
+  if(e.dataTransfer){
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',String(idx));
+    // Use the full row as drag image
+    e.dataTransfer.setDragImage(row,e.offsetX,e.offsetY);
+  }
+}
+
+function dragOver(e,idx){
+  e.preventDefault();
+  if(e.dataTransfer)e.dataTransfer.dropEffect='move';
+  // Only allow vertical indicator, no horizontal movement
+  document.querySelectorAll('.cycle-row').forEach(r=>r.classList.remove('drag-over'));
+  const target=document.getElementById('crow-'+idx);
+  if(target)target.classList.add('drag-over');
+}
+
+function dragDrop(e,idx){
+  e.preventDefault();
+  document.querySelectorAll('.cycle-row').forEach(r=>{r.classList.remove('drag-over');r.classList.remove('dragging');});
+  if(dragIdx===null||dragIdx===idx){dragIdx=null;return;}
+  const cycle=yd().cycling[cyclePhase];
+  const [moved]=cycle.splice(dragIdx,1);
+  cycle.splice(idx,0,moved);
+  cycle.forEach((r,i)=>r.matchNum=i+1);
+  yd().cycling[cyclePhase]=cycle;
+  save();renderCycling();dragIdx=null;
+}
+
+function dragEnd(e){
+  document.querySelectorAll('.cycle-row').forEach(r=>{r.classList.remove('dragging');r.classList.remove('drag-over');});
+  dragIdx=null;
+}
+
+function removeCycleRow(idx){
+  yd().cycling[cyclePhase].splice(idx,1);
+  yd().cycling[cyclePhase].forEach((r,i)=>r.matchNum=i+1);
+  save();renderCycling();
+}
+
+function updateCycleBatt(idx,role,val){
+  const row=yd().cycling[cyclePhase][idx];if(!row)return;
+  if(role==='primary')row.battId=val;else row.backupId=val;
+  save();
+}
+
+function openCycleAdd(){
+  const roster=getRosterBatts();
+  document.getElementById('cycleAddSel').innerHTML=`<option value="">-- Select --</option>`+roster.map(b=>`<option value="${b.id}">${b.name} (${b.ah}Ah)</option>`).join('');
+  document.getElementById('cycleAddAfter').value=yd().cycling[cyclePhase].length;
+  document.getElementById('cycleAddPanel').style.display='';
+}
+
+function doAddCycleBatt(){
+  const battId=document.getElementById('cycleAddSel').value;if(!battId)return;
+  const after=parseInt(document.getElementById('cycleAddAfter').value)||0;
+  const cycle=yd().cycling[cyclePhase];
+  cycle.splice(after,0,{matchNum:after+1,battId,backupId:null});
+  cycle.forEach((r,i)=>r.matchNum=i+1);
+  yd().cycling[cyclePhase]=cycle;
+  save();document.getElementById('cycleAddPanel').style.display='none';renderCycling();
+}
+
+// ══════════════════════════════════════════════════════════
+// EDIT FAB
+// ══════════════════════════════════════════════════════════
+function setEditMode(val){
+  editMode=val;
+  const fab=document.getElementById('editFab');
+  const icon=document.getElementById('fabIcon');
+  if(editMode){
+    fab.classList.add('editing');
+    // Magnifying glass icon = exit edit mode preview
+    icon.innerHTML='<path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>';
+  } else {
+    fab.classList.remove('editing');
+    icon.innerHTML='<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>';
+  }
+}
+
+function toggleEdit(){
+  setEditMode(!editMode);
+  // Refresh the current tab's edit-sensitive view
+  const activeTab=document.querySelector('.nav-tab.active')?.getAttribute('data-tab');
+  if(activeTab==='cycling') renderCycling();
+  if(activeTab==='analytics') buildBattFilter();
+  if(activeTab==='ranking') renderRanking();
+}
+
+// ══════════════════════════════════════════════════════════
+// ANALYTICS
+// ══════════════════════════════════════════════════════════
+function buildBattFilter(){
+  const roster=getRosterBatts().filter(b=>getEntriesForBatt(b.id).length>0);
+  const el=document.getElementById('battFilter');
+  // selBatts null = all
+  const allSel=selBatts===null;
+  el.innerHTML=`<button class="batt-chip${allSel?' sel':''}" onclick="selectAllBatts()">${allSel?'<span class="chip-x" onclick="event.stopPropagation();selectAllBatts()">&#x2713;</span> ':''}All Batteries</button>`+
+    roster.map(b=>{
+      const isSel=!allSel&&selBatts&&selBatts.includes(b.id);
+      return `<button class="batt-chip${isSel?' sel':''}" onclick="toggleBattChip('${b.id}')">
+        ${b.name}${isSel?` <span class="chip-x" onclick="event.stopPropagation();deselectBattChip('${b.id}')">x</span>`:''}
+      </button>`;
+    }).join('');
+}
+
+function selectAllBatts(){selBatts=null;buildBattFilter();renderAllCharts();}
+function toggleBattChip(id){
+  if(selBatts===null) selBatts=[];
+  const i=selBatts.indexOf(id);
+  if(i>-1) selBatts.splice(i,1); else selBatts.push(id);
+  if(selBatts.length===0) selBatts=null;
+  buildBattFilter();renderAllCharts();
+}
+function deselectBattChip(id){
+  if(!selBatts)return;
+  selBatts=selBatts.filter(x=>x!==id);
+  if(selBatts.length===0)selBatts=null;
+  buildBattFilter();renderAllCharts();
+}
+
+function getSelectedBatts(){
+  const roster=getRosterBatts().filter(b=>getEntriesForBatt(b.id).length>0);
+  if(selBatts===null||selBatts.length===0) return roster;
+  return roster.filter(b=>selBatts.includes(b.id));
+}
+
+function renderAllCharts(){
+  if(typeof Chart==='undefined')return;
+  const batts=getSelectedBatts();
+  const COLORS=['#3b82f6','#22c55e','#f97316','#a855f7','#eab308','#ef4444','#06b6d4','#ec4899','#84cc16','#f43f5e'];
+
+  function mkLineChart(id,accessor,yLabel,yMin,yMax,extraOptions){
+    if(chartInst[id]){chartInst[id].destroy();delete chartInst[id];}
+    const datasets=batts.map((b,i)=>{
+      const entries=getEntriesForBatt(b.id);
+      return{label:b.name,data:entries.map(e=>({x:e.matchNum,y:accessor(e)??null})),borderColor:COLORS[i%COLORS.length],backgroundColor:COLORS[i%COLORS.length]+'22',tension:.3,fill:false,pointRadius:4,spanGaps:false};
+    });
+    chartInst[id]=new Chart(document.getElementById(id).getContext('2d'),{
+      type:'line',data:{datasets},
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        scales:{
+          x:{type:'linear',title:{display:true,text:'Match #',color:'#475569'},ticks:{color:'#475569'},grid:{color:'rgba(255,255,255,0.04)'}},
+          y:{title:{display:true,text:yLabel,color:'#475569'},ticks:{color:'#475569'},grid:{color:'rgba(255,255,255,0.04)'},
+            min:yMin,max:yMax,
+            ...extraOptions}
+        },
+        plugins:{legend:{labels:{color:'#cbd5e1',font:{family:'JetBrains Mono',size:10},boxWidth:12}},
+          tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y!=null?c.parsed.y:'--'}`}}}
+      }
+    });
+  }
+
+  mkLineChart('rintChart',e=>e.after?.rint??null,'Rint (Ohm)',undefined,undefined,{});
+  mkLineChart('v2Chart',e=>e.after?.v2??null,'V2 18A Load (V)',undefined,undefined,{});
+  mkLineChart('chargeChart',e=>e.after?.charge??null,'Post-Match Charge %',0,130,{});
+
+  // Scatter
+  if(chartInst['scatterChart']){chartInst['scatterChart'].destroy();}
+  const scData=batts.map((b,i)=>{
+    const entries=getEntriesForBatt(b.id);
+    const rints=entries.map(e=>e.after?.rint).filter(v=>v!=null);
+    const avg=rints.length?rints.reduce((a,b)=>a+b,0)/rints.length:null;
+    if(!avg)return null;
+    return{label:b.name,data:[{x:b.ah,y:avg}],backgroundColor:COLORS[i%COLORS.length],pointRadius:8,pointHoverRadius:12};
+  }).filter(Boolean);
+  chartInst['scatterChart']=new Chart(document.getElementById('scatterChart').getContext('2d'),{
+    type:'scatter',data:{datasets:scData},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{title:{display:true,text:'CBA Ah',color:'#475569'},ticks:{color:'#475569'},grid:{color:'rgba(255,255,255,0.04)'}},
+        y:{title:{display:true,text:'Avg Rint',color:'#475569'},ticks:{color:'#475569'},grid:{color:'rgba(255,255,255,0.04)'}}
+      },
+      plugins:{legend:{labels:{color:'#cbd5e1',font:{family:'JetBrains Mono',size:10},boxWidth:12}},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.x}Ah / ${c.parsed.y.toFixed(3)}`}}}
+    }
+  });
+}
+
+function renderMatchLog(){
+  const body=document.getElementById('matchLogBody');
+  const evt=getActiveEvt();
+  const entries=[...yd().entries].filter(e=>!evt||e.eventId===evt.id).sort((a,b)=>b.matchNum-a.matchNum);
+  if(!entries.length){body.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text-500);padding:20px">No entries yet</td></tr>';return;}
+  body.innerHTML=entries.map(e=>{
+    const batt=yd().batteries.find(b=>b.id===e.primaryBattId);
+    const time=new Date(e.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const src=e.timestampSource==='exif'?'Photo':'Form';
+    const rintOver=e.after?.rint!=null&&e.after.rint>cfg().rintCutoff;
+    return `<tr onclick="openLogDetail('${e.id}')">
+      <td><span class="badge badge-gray">${e.phase||'quals'}</span></td>
+      <td class="mono">${e.matchNum}</td>
+      <td style="font-weight:600">${batt?.name||'?'}</td>
+      <td class="mono text-xs">${time}</td>
+      <td class="mono text-xs">${src}</td>
+      <td class="mono">${e.before?.charge!=null?e.before.charge.toFixed(1)+'%':'--'}</td>
+      <td class="mono">${e.before?.rint!=null?e.before.rint.toFixed(3):'--'}</td>
+      <td class="mono">${e.before?.v2!=null?e.before.v2.toFixed(2):'--'}</td>
+      <td class="mono">${e.after?.charge!=null?e.after.charge.toFixed(1)+'%':'--'}</td>
+      <td class="mono" style="color:${rintOver?'var(--red)':''}">${e.after?.rint!=null?e.after.rint.toFixed(3):'--'}${rintOver?' *':''}</td>
+      <td class="mono">${e.after?.v2!=null?e.after.v2.toFixed(2):'--'}</td>
+      <td><span class="badge ${e.verified?'badge-green':'badge-yellow'}">${e.verified?'YES':'NO'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function openLogDetail(id){
+  const e=yd().entries.find(x=>x.id===id);if(!e)return;
+  const batt=yd().batteries.find(b=>b.id===e.primaryBattId);
+
+  function editableField(side,field,val,isRint){
+    const over=isRint&&val!=null&&val>cfg().rintCutoff;
+    return`<input type="number" step="any"
+      style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:${over?'var(--red)':'var(--text-100)'};background:transparent;border:none;outline:none;width:100%;border-bottom:1px solid var(--border);padding-bottom:2px"
+      value="${val!=null?val:''}" placeholder="--"
+      onchange="updateEntryField('${id}','${side}','${field}',this.value)">`;
+  }
+
+  function beakSection(side,data){
+    const fields=[['Charge %','charge',false],['V0','v0',false],['V1','v1',false],['V2','v2',false],['Rint (Ohm)','rint',true]];
+    return`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      ${fields.map(([lbl,key,isRint])=>`
+        <div style="background:var(--bg-800);border:1px solid var(--border);border-radius:7px;padding:9px 11px">
+          <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-500);margin-bottom:5px">${lbl}</div>
+          ${editableField(side,key,data?data[key]:null,isRint)}
+        </div>`).join('')}
+    </div>`;
+  }
+
+  document.getElementById('logDetailContent').innerHTML=`
+    <div class="flex gap-2 mb-2 items-center" style="flex-wrap:wrap">
+      <span class="badge badge-gray">${e.phase||'quals'}</span>
+      <span class="mono" style="font-size:13px;font-weight:700">Match ${e.matchNum}</span>
+      <span style="flex:1;font-weight:600">${batt?.name||'?'}</span>
+      <span class="badge ${e.verified?'badge-green':'badge-yellow'}">${e.verified?'Verified':'Unverified'}</span>
+    </div>
+
+    <!-- PHOTOS -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-500);margin-bottom:8px">BEFORE PHOTO</div>
+        <div style="position:relative;background:var(--bg-800);border:1px solid var(--border);border-radius:10px;overflow:hidden;min-height:200px;display:flex;align-items:center;justify-content:center;">
+          ${e.beforePhotoData?`<img src="${e.beforePhotoData}" style="width:100%;height:auto;max-height:280px;object-fit:contain;display:block">`:
+          '<span style="color:var(--text-700);font-size:12px">No image</span>'}
+          <input type="file" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="updateEntryPhoto('${id}','before',this)">
+        </div>
+        <div style="font-size:11px;color:var(--text-500);margin-top:5px;text-align:center">Click to replace image</div>
+      </div>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-500);margin-bottom:8px">AFTER PHOTO</div>
+        <div style="position:relative;background:var(--bg-800);border:1px solid var(--border);border-radius:10px;overflow:hidden;min-height:200px;display:flex;align-items:center;justify-content:center;">
+          ${e.afterPhotoData?`<img src="${e.afterPhotoData}" style="width:100%;height:auto;max-height:280px;object-fit:contain;display:block">`:
+          '<span style="color:var(--text-700);font-size:12px">No image</span>'}
+          <input type="file" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" onchange="updateEntryPhoto('${id}','after',this)">
+        </div>
+        <div style="font-size:11px;color:var(--text-500);margin-top:5px;text-align:center">Click to replace image</div>
+      </div>
+    </div>
+
+    <!-- OCR VALUES -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-500);margin-bottom:10px">BEFORE VALUES</div>
+        ${beakSection('before',e.before)}
+      </div>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-500);margin-bottom:10px">AFTER VALUES</div>
+        ${beakSection('after',e.after)}
+      </div>
+    </div>
+
+    ${e.notes?`<div class="info-box" style="font-size:12px;margin-bottom:14px">${e.notes}</div>`:''}
+    <div class="divider"></div>
+    <div class="flex gap-2">
+      <button class="btn btn-${e.verified?'secondary':'success'}" onclick="toggleEntryVerified('${id}')" style="flex:1">${e.verified?'Mark Unverified':'Mark as Verified'}</button>
+      <button class="btn btn-danger btn-sm" onclick="if(confirm('Delete entry?')){deleteEntry('${id}')}">Delete</button>
+    </div>`;
+  openModal('logDetailModal');
+}
+
+function updateEntryField(id,side,field,val){
+  const e=yd().entries.find(x=>x.id===id);if(!e)return;
+  if(!e[side])e[side]={};
+  e[side][field]=val!==''?parseFloat(val):null;
+  save();
+}
+
+function updateEntryPhoto(id,side,input){
+  const file=input.files[0];if(!file)return;
+  const fr=new FileReader();
+  fr.onload=ev=>{
+    const e=yd().entries.find(x=>x.id===id);if(!e)return;
+    e[side+'PhotoData']=ev.target.result;
+    save();
+    // Refresh the detail modal
+    closeModal('logDetailModal');
+    setTimeout(()=>openLogDetail(id),50);
+  };
+  fr.readAsDataURL(file);
+}
+
+function toggleEntryVerified(id){
+  const e=yd().entries.find(x=>x.id===id);if(!e)return;
+  e.verified=!e.verified;
+  save();closeModal('logDetailModal');renderMatchLog();
+}
+
+function deleteEntry(id){
+  yd().entries=yd().entries.filter(e=>e.id!==id);
+  save();closeModal('logDetailModal');renderMatchLog();
+}
+
+// ══════════════════════════════════════════════════════════
+// SETTINGS
+// ══════════════════════════════════════════════════════════
+function loadSettings(){
+  const s=cfg();
+  document.getElementById('cfg-teamNum').value=s.teamNum||'';
+  document.getElementById('cfg-chargerSlots').value=s.chargerSlots||4;
+  document.getElementById('cfg-fieldBatts').value=s.fieldBatts||2;
+  document.getElementById('cfg-minCharge').value=s.minCharge||110;
+  document.getElementById('cfg-rintCutoff').value=s.rintCutoff||0.020;
+  document.getElementById('cfg-practiceMin').value=s.practiceMin||10;
+  document.getElementById('cfg-compMin').value=s.compMin||12;
+  document.getElementById('cfg-playoffN').value=s.playoffN||8;
+  document.getElementById('cfg-finalsN').value=s.finalsN||3;
+  document.getElementById('cfg-drainVolt').value=s.drainVolt||12.4;
+  document.getElementById('cfg-apiKey').value=s.apiKey||'';
+  if(s.hasDrainer){document.getElementById('cfg-drainerTgl').classList.add('on');document.getElementById('cfg-drainerLbl').textContent='Yes';document.getElementById('cfg-drainGrp').style.display='';}
+  buildWeightSliders();
+}
+
+function toggleDrainer(){
+  const t=document.getElementById('cfg-drainerTgl');t.classList.toggle('on');
+  const on=t.classList.contains('on');
+  document.getElementById('cfg-drainerLbl').textContent=on?'Yes':'No';
+  document.getElementById('cfg-drainGrp').style.display=on?'':'none';
+}
+
+function buildWeightSliders(){
+  const w=cfg().weights;
+  const defs=[{key:'rint',label:'Rint (internal resistance)'},{key:'v2',label:'V2 loaded voltage (18A)'},{key:'charge',label:'Post-match Charge % drop'},{key:'ah',label:'CBA Ah rating (baseline)'}];
+  document.getElementById('weightSliders').innerHTML=defs.map(d=>`
+    <div class="slider-group">
+      <div class="slider-hdr"><span class="slider-name">${d.label}</span><span class="slider-pct" id="w-${d.key}-val">${w[d.key]}%</span></div>
+      <input type="range" id="w-${d.key}" min="0" max="100" value="${w[d.key]}" oninput="adjWeights('${d.key}')">
+    </div>`).join('');
+}
+
+function adjWeights(changed){
+  const keys=['rint','v2','charge','ah'];
+  const val=+document.getElementById('w-'+changed).value;
+  const others=keys.filter(k=>k!==changed);
+  const otherSum=others.reduce((s,k)=>s+ +document.getElementById('w-'+k).value,0);
+  const remaining=100-val;
+  if(otherSum>0){others.forEach(k=>{const cur=+document.getElementById('w-'+k).value;document.getElementById('w-'+k).value=Math.round((cur/otherSum)*remaining);});}
+  else{const share=Math.floor(remaining/others.length);others.forEach(k=>document.getElementById('w-'+k).value=share);}
+  let total=keys.reduce((s,k)=>s+ +document.getElementById('w-'+k).value,0);
+  if(total!==100){const diff=100-total;document.getElementById('w-'+others[0]).value= +document.getElementById('w-'+others[0]).value+diff;}
+  keys.forEach(k=>document.getElementById('w-'+k+'-val').textContent=document.getElementById('w-'+k).value+'%');
+  document.getElementById('weightTotal').textContent='Total: '+keys.reduce((s,k)=>s+ +document.getElementById('w-'+k).value,0)+'%';
+}
+
+function saveSettings(){
+  const keys=['rint','v2','charge','ah'];
+  const s={
+    teamNum:document.getElementById('cfg-teamNum').value,
+    chargerSlots:+document.getElementById('cfg-chargerSlots').value||4,
+    fieldBatts:+document.getElementById('cfg-fieldBatts').value||2,
+    minCharge:+document.getElementById('cfg-minCharge').value||110,
+    rintCutoff:+document.getElementById('cfg-rintCutoff').value||0.020,
+    practiceMin:+document.getElementById('cfg-practiceMin').value||10,
+    compMin:+document.getElementById('cfg-compMin').value||12,
+    playoffN:+document.getElementById('cfg-playoffN').value||8,
+    finalsN:+document.getElementById('cfg-finalsN').value||3,
+    hasDrainer:document.getElementById('cfg-drainerTgl').classList.contains('on'),
+    drainVolt:+document.getElementById('cfg-drainVolt').value||12.4,
+    apiKey:document.getElementById('cfg-apiKey').value.trim(),
+    weights:Object.fromEntries(keys.map(k=>[k,+document.getElementById('w-'+k).value]))
+  };
+  yd().settings=s;
+  save();
+  const msg=document.getElementById('settingsSaved');msg.style.display='';setTimeout(()=>msg.style.display='none',2000);
+  initLogForm();
+}
+
+// ══════════════════════════════════════════════════════════
+// DATA OPS
+// ══════════════════════════════════════════════════════════
+function exportData(){
+  const blob=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`shieldlog_${new Date().toISOString().slice(0,10)}.json`;a.click();
+}
+function importData(input){
+  const file=input.files[0];if(!file)return;
+  const fr=new FileReader();
+  fr.onload=e=>{try{const d=JSON.parse(e.target.result);if(d){DB={...DB,...d};save();renderEvtSwitcher();alert('Imported.');}}catch{alert('Invalid file.');}};
+  fr.readAsText(file);
+}
+function clearAll(){DB={};save();yd(activeYear);renderEvtSwitcher();initLogForm();alert('Cleared.');}
+
+// ══════════════════════════════════════════════════════════
+// MODAL / UTIL
+// ══════════════════════════════════════════════════════════
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+document.addEventListener('click',e=>{if(e.target.classList.contains('modal-overlay'))e.target.classList.remove('open');});
+
+function refreshCurrentTab(){
+  const t=document.querySelector('.nav-tab.active')?.getAttribute('data-tab');
+  if(t)showTab(t);
+}
+
+
+// ══════════════════════════════════════════════════════════
+// LIGHTBOX
+// ══════════════════════════════════════════════════════════
+function openLightbox(side){
+  const src=window._pendingPhotos&&window._pendingPhotos[side];
+  if(!src)return;
+  document.getElementById('lightboxImg').src=src;
+  document.getElementById('imgLightbox').classList.add('open');
+}
+function closeLightbox(){
+  document.getElementById('imgLightbox').classList.remove('open');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLightbox();});
+
+// ══════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════
+function initApp(){
+  buildYearSelect();
+  renderEvtSwitcher();
+  initLogForm();
+  checkVerifyReady('bef');
+  checkVerifyReady('aft');
+}
+
+load();
+
+const currentYear=String(new Date().getFullYear());
+// Add current year to sorted years if not present
+if(!SORTED_YEARS.includes(currentYear)) SORTED_YEARS.unshift(currentYear);
+// Sort descending
+SORTED_YEARS.sort((a,b)=>+b-+a);
+
+// Determine default year
+if(!DB[activeYear]) activeYear = currentYear;
+
+// Show setup if no data at all, else go straight to app
+const hasAnyData = Object.keys(DB).some(y=>DB[y]&&(DB[y].batteries?.length>0||DB[y].events?.length>0||DB[y].settings?.teamNum));
+if(hasAnyData){
+  showMain();
+} else {
+  document.getElementById('setupScreen').style.display='flex';
+  document.getElementById('mainApp').style.display='none';
+}
+
+// Load Chart.js
+const cs=document.createElement('script');
+cs.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+cs.onload=()=>{
+  Chart.defaults.color='#64748b';
+  Chart.defaults.font.family='JetBrains Mono';
+};
+document.head.appendChild(cs);
+</script>
+<div class="lightbox" id="imgLightbox" onclick="closeLightbox()">
+  <img id="lightboxImg" src="" alt="Beak reading">
+</div>
+</body>
+</html>
