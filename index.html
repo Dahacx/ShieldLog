@@ -2111,12 +2111,12 @@ document.head.appendChild(cs);
 
 // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
-  authDomain: "shieldlog-3618.firebaseapp.com",
-  projectId: "shieldlog-3618",
-  storageBucket: "shieldlog-3618.firebasestorage.app",
-  messagingSenderId: "488478875183",
-  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
+  apiKey:            "PASTE_HERE",
+  authDomain:        "PASTE_HERE",
+  projectId:         "PASTE_HERE",
+  storageBucket:     "PASTE_HERE",
+  messagingSenderId: "PASTE_HERE",
+  appId:             "PASTE_HERE"
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2125,7 +2125,8 @@ const auth = firebase.auth();
 const db   = firebase.firestore();
 
 // Enable offline persistence so writes queue when signal drops
-db.enablePersistence().catch(()=>{});
+db.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
+try { db.enablePersistence({synchronizeTabs:true}).catch(()=>{}); } catch(e){}
 
 const provider = new firebase.auth.GoogleAuthProvider();
 let _unsubscribe = null;
@@ -2145,15 +2146,19 @@ window.fbSignOut = async function() {
   await auth.signOut();
 };
 
-// Handle redirect result first (fires after Google redirects back)
+// Handle redirect result (fires when Google redirects back to the app)
 auth.getRedirectResult().then(result => {
   if(result && result.user) {
     console.log('Redirect sign-in success:', result.user.email);
+    // Auth state change will handle the rest
   }
 }).catch(e => {
-  console.warn('Redirect result error:', e);
-  if(e.code !== 'auth/no-auth-event') {
-    alert('Sign-in failed: ' + e.message);
+  console.warn('Redirect result error:', e.code, e.message);
+  // Only show error for real failures, not "no redirect pending"
+  if(e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/null-user') {
+    const bar = document.getElementById('authBar');
+    if(bar) bar.innerHTML = `<span style="font-size:11px;color:var(--red)">Sign-in error: ${e.code}</span>
+      <button class="btn btn-sm btn-blue" onclick="fbSignIn()" style="font-size:11px;padding:4px 10px">Retry</button>`;
   }
 });
 

@@ -1,4 +1,4 @@
-const CACHE = 'shieldlog-v2';
+const CACHE = 'shieldlog-v3';
 const SHELL = [
   'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@400;500;600&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'
@@ -14,12 +14,16 @@ const PASSTHROUGH = [
   'vision.googleapis.com',
   'firebaseapp.com',
   'googleapis.com',
+  'chrome-extension',
 ];
 
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(c => Promise.allSettled(SHELL.map(url => c.add(url))))
+      .then(c => Promise.allSettled(SHELL.map(url => {
+        // Only cache http/https URLs
+        if(url.startsWith('http')) return c.add(url);
+      })))
       .then(() => self.skipWaiting())
   );
 });
@@ -34,6 +38,8 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
+  // Only handle http/https
+  if (!url.startsWith('http')) return;
   if (e.request.method !== 'GET') return;
   if (e.request.mode === 'navigate') return;
   if (PASSTHROUGH.some(domain => url.includes(domain))) return;
