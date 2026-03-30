@@ -10,119 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ShieldLog">
-<!-- Firebase compat SDKs (no module bundler needed) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script>
-// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
-  authDomain: "shieldlog-3618.firebaseapp.com",
-  projectId: "shieldlog-3618",
-  storageBucket: "shieldlog-3618.firebasestorage.app",
-  messagingSenderId: "488478875183",
-  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
-};
-// ─────────────────────────────────────────────────────────────────────────────
 
-firebase.initializeApp(FIREBASE_CONFIG);
-const auth = firebase.auth();
-const db   = firebase.firestore();
-
-// Enable offline persistence so writes queue when signal drops
-db.enablePersistence().catch(()=>{});
-
-const provider = new firebase.auth.GoogleAuthProvider();
-let _unsubscribe = null;
-
-// ── AUTH ─────────────────────────────────────────────────────────────────────
-window.fbSignIn = async function() {
-  try {
-    await auth.signInWithPopup(provider);
-  } catch(e) {
-    console.warn('Sign-in failed:', e);
-    alert('Sign-in failed: ' + e.message);
-  }
-};
-
-window.fbSignOut = async function() {
-  if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
-  await auth.signOut();
-};
-
-auth.onAuthStateChanged(user => {
-  window._fbUser = user;
-  updateAuthUI(user);
-  if(user){
-    subscribeToFirestore(user.uid);
-  } else {
-    if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
-  }
-});
-
-function updateAuthUI(user){
-  const bar = document.getElementById('authBar');
-  if(!bar) return;
-  if(user){
-    bar.innerHTML = `<span style="font-size:12px;color:var(--text-300)">${user.email}</span>
-      <button class="btn btn-sm btn-secondary" onclick="fbSignOut()" style="font-size:11px;padding:4px 10px">Sign Out</button>`;
-    bar.style.background = 'rgba(34,197,94,0.08)';
-    bar.style.borderColor = 'rgba(34,197,94,0.2)';
-  } else {
-    bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in — data is local only</span>
-      <button class="btn btn-sm btn-blue" onclick="fbSignIn()" style="font-size:11px;padding:4px 10px">Sign in with Google</button>`;
-    bar.style.background = 'rgba(59,130,246,0.06)';
-    bar.style.borderColor = 'rgba(59,130,246,0.15)';
-  }
-}
-
-// ── FIRESTORE SYNC ───────────────────────────────────────────────────────────
-function userDocRef(uid){
-  return db.collection('shieldlog').doc(uid);
-}
-
-function subscribeToFirestore(uid){
-  if(_unsubscribe) _unsubscribe();
-  _unsubscribe = userDocRef(uid).onSnapshot(snap => {
-    if(!snap.exists) {
-      pushToFirestore();
-      return;
-    }
-    const remote = snap.data();
-    const remoteTs = remote._savedAt || 0;
-    const localTs  = parseInt(localStorage.getItem('sl3_savedAt')||'0');
-    if(remoteTs >= localTs){
-      if(remote.DB){
-        DB = remote.DB;
-        localStorage.setItem('sl3_db', JSON.stringify(DB));
-        localStorage.setItem('sl3_savedAt', String(remoteTs));
-        if(document.getElementById('mainApp').style.display !== 'none'){
-          if(typeof renderEvtSwitcher==='function') renderEvtSwitcher();
-          if(typeof refreshCurrentTab==='function') refreshCurrentTab();
-        }
-      }
-    }
-  }, err => console.warn('Firestore listen error:', err));
-}
-
-window.pushToFirestore = async function() {
-  const user = window._fbUser;
-  if(!user) return;
-  const ts = Date.now();
-  try {
-    await userDocRef(user.uid).set({ DB, _savedAt: ts });
-    localStorage.setItem('sl3_savedAt', String(ts));
-  } catch(e){
-    console.warn('Firestore write error:', e);
-  }
-};
-
-// Register service worker for PWA offline support
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
-}
-</script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -141,7 +29,7 @@ html,body{height:100%;}
 body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body);font-size:15px;line-height:1.5;overflow-x:hidden;}
 
 /* HEADER */
-.app-header{background:linear-gradient(135deg,#0a1a4a 0%,#0d2060 40%,#0e2878 100%);border-bottom:1px solid rgba(59,130,246,0.25);display:flex;align-items:center;padding:0 10px;height:52px;position:sticky;top:0;z-index:100;gap:0;}
+.app-header{background:linear-gradient(135deg,#0a1a4a 0%,#0d2060 40%,#0e2878 100%);border-bottom:1px solid rgba(59,130,246,0.25);display:flex;align-items:center;padding:0 10px;height:52px;position:sticky;top:0;z-index:100;gap:0;width:100%;box-sizing:border-box;}
 .logo-group{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-right:12px;}
 .logo-img{width:38px;height:38px;object-fit:contain;flex-shrink:0;}
 .logo-txt{font-family:var(--font-disp);font-size:20px;font-weight:800;letter-spacing:.05em;color:var(--text-100);white-space:nowrap;flex-shrink:0;}
@@ -380,6 +268,32 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
 .cycle-row.drag-over{border-color:var(--accent);background:var(--accent-glow);}
 .cycle-row.dragging{opacity:.4;pointer-events:none;}
 
+
+/* HAMBURGER NAV */
+.hamburger-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:36px;height:36px;flex-shrink:0;transition:all .15s;}
+.hamburger-btn:hover{border-color:var(--accent);}
+.hamburger-btn span{display:block;width:16px;height:2px;background:var(--text-300);border-radius:2px;transition:all .2s;}
+.hamburger-btn.open span:nth-child(1){transform:translateY(6px) rotate(45deg);}
+.hamburger-btn.open span:nth-child(2){opacity:0;}
+.hamburger-btn.open span:nth-child(3){transform:translateY(-6px) rotate(-45deg);}
+
+.mobile-menu{position:fixed;top:52px;left:0;right:0;background:var(--bg-900);border-bottom:1px solid rgba(59,130,246,.25);z-index:99;display:none;flex-direction:column;padding:8px;gap:2px;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.mobile-menu.open{display:flex;}
+.mobile-menu-item{font-family:var(--font-body);font-size:15px;font-weight:500;color:rgba(255,255,255,.75);padding:12px 16px;border:none;background:none;cursor:pointer;text-align:left;border-radius:8px;transition:all .15s;width:100%;}
+.mobile-menu-item:hover{color:var(--text-100);background:rgba(255,255,255,.08);}
+.mobile-menu-item.active{color:var(--text-100);background:rgba(59,130,246,.2);font-weight:600;}
+
+/* Hide desktop nav on small screens, show hamburger */
+@media(max-width:700px){
+  .header-nav{display:none;}
+  .hamburger-btn{display:flex;}
+  .evt-switcher{max-width:120px;}
+}
+@media(min-width:701px){
+  .hamburger-btn{display:none;}
+  .mobile-menu{display:none !important;}
+}
+
 .flex{display:flex;} .items-center{align-items:center;} .justify-between{justify-content:space-between;} .gap-2{gap:8px;} .gap-3{gap:12px;}
 .mt-1{margin-top:4px;} .mt-2{margin-top:8px;} .mt-3{margin-top:12px;} .mb-1{margin-bottom:4px;} .mb-2{margin-bottom:8px;}
 .text-muted{color:var(--text-500);} .text-sm{font-size:13px;} .text-xs{font-size:11px;} .font-bold{font-weight:700;} .w-full{width:100%;}
@@ -443,6 +357,9 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
 <div id="mainApp" style="display:none">
 
 <header class="app-header">
+  <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMobileMenu()" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
   <div class="logo-group">
     <img class="logo-img" src="white.png.webp" alt="Petoskey Paladins 3618">
     <div class="logo-txt">Shield<span>Log</span></div>
@@ -466,6 +383,15 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
     </button>
   </div>
 </header>
+
+<div class="mobile-menu" id="mobileMenu">
+  <button class="mobile-menu-item active" data-tab="log" onclick="mobileNav('log')">Log Match</button>
+  <button class="mobile-menu-item" data-tab="batteries" onclick="mobileNav('batteries')">Batteries</button>
+  <button class="mobile-menu-item" data-tab="ranking" onclick="mobileNav('ranking')">Ranking</button>
+  <button class="mobile-menu-item" data-tab="cycling" onclick="mobileNav('cycling')">Cycling</button>
+  <button class="mobile-menu-item" data-tab="analytics" onclick="mobileNav('analytics')">Analytics</button>
+  <button class="mobile-menu-item" data-tab="settings" onclick="mobileNav('settings')">Settings</button>
+</div>
 
 <!-- LOG MATCH -->
 <div id="view-log" class="view active">
@@ -852,6 +778,10 @@ function showTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('view-'+tab).classList.add('active');
   document.querySelector(`[data-tab="${tab}"]`)?.classList.add('active');
+  // Sync mobile menu
+  document.querySelectorAll('.mobile-menu-item').forEach(el=>{
+    el.classList.toggle('active', el.getAttribute('data-tab')===tab);
+  });
   if(tab==='batteries') renderBatteries();
   if(tab==='ranking') renderRanking();
   if(tab==='cycling') renderCycling();
@@ -2096,6 +2026,40 @@ function closeLightbox(){
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLightbox();});
 
+
+// ══════════════════════════════════════════════════════════
+// MOBILE NAV
+// ══════════════════════════════════════════════════════════
+function toggleMobileMenu(){
+  const menu = document.getElementById('mobileMenu');
+  const btn = document.getElementById('hamburgerBtn');
+  const isOpen = menu.classList.contains('open');
+  menu.classList.toggle('open');
+  btn.classList.toggle('open');
+}
+
+function mobileNav(tab){
+  // Update mobile menu active state
+  document.querySelectorAll('.mobile-menu-item').forEach(el=>{
+    el.classList.toggle('active', el.getAttribute('data-tab')===tab);
+  });
+  // Close menu
+  document.getElementById('mobileMenu').classList.remove('open');
+  document.getElementById('hamburgerBtn').classList.remove('open');
+  // Navigate
+  showTab(tab);
+}
+
+// Close mobile menu when clicking outside
+document.addEventListener('click', e=>{
+  const menu = document.getElementById('mobileMenu');
+  const btn = document.getElementById('hamburgerBtn');
+  if(menu && !menu.contains(e.target) && !btn.contains(e.target)){
+    menu.classList.remove('open');
+    btn.classList.remove('open');
+  }
+});
+
 // ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
@@ -2139,5 +2103,159 @@ document.head.appendChild(cs);
 <div class="lightbox" id="imgLightbox" onclick="closeLightbox()">
   <img id="lightboxImg" src="" alt="Beak reading">
 </div>
+<!-- Firebase compat SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+
+// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
+  authDomain: "shieldlog-3618.firebaseapp.com",
+  projectId: "shieldlog-3618",
+  storageBucket: "shieldlog-3618.firebasestorage.app",
+  messagingSenderId: "488478875183",
+  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// Enable offline persistence so writes queue when signal drops
+db.enablePersistence().catch(()=>{});
+
+const provider = new firebase.auth.GoogleAuthProvider();
+let _unsubscribe = null;
+
+// ── AUTH ─────────────────────────────────────────────────────────────────────
+window.fbSignIn = async function() {
+  try {
+    await auth.signInWithRedirect(provider);
+  } catch(e) {
+    console.warn('Sign-in failed:', e);
+    alert('Sign-in failed: ' + e.message);
+  }
+};
+
+window.fbSignOut = async function() {
+  if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
+  await auth.signOut();
+};
+
+// Handle redirect result first (fires after Google redirects back)
+auth.getRedirectResult().then(result => {
+  if(result && result.user) {
+    console.log('Redirect sign-in success:', result.user.email);
+  }
+}).catch(e => {
+  console.warn('Redirect result error:', e);
+  if(e.code !== 'auth/no-auth-event') {
+    alert('Sign-in failed: ' + e.message);
+  }
+});
+
+auth.onAuthStateChanged(user => {
+  window._fbUser = user;
+  updateAuthUI(user);
+  if(user){
+    subscribeToFirestore(user.uid);
+  } else {
+    if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
+  }
+});
+
+function updateAuthUI(user){
+  const bar = document.getElementById('authBar');
+  if(!bar) return;
+  if(user){
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text-300)">${user.email}</span>
+      <button class="btn btn-sm btn-secondary" onclick="fbSignOut()" style="font-size:11px;padding:4px 10px">Sign Out</button>`;
+    bar.style.background = 'rgba(34,197,94,0.08)';
+    bar.style.borderColor = 'rgba(34,197,94,0.2)';
+  } else {
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in — data is local only</span>
+      <button class="btn btn-sm btn-blue" onclick="fbSignIn()" style="font-size:11px;padding:4px 10px">Sign in with Google</button>`;
+    bar.style.background = 'rgba(59,130,246,0.06)';
+    bar.style.borderColor = 'rgba(59,130,246,0.15)';
+  }
+}
+
+// ── FIRESTORE SYNC ───────────────────────────────────────────────────────────
+function userDocRef(uid){
+  return db.collection('shieldlog').doc(uid);
+}
+
+function subscribeToFirestore(uid){
+  if(_unsubscribe) _unsubscribe();
+  let firstSnapshot = true;
+  _unsubscribe = userDocRef(uid).onSnapshot(snap => {
+    if(!snap.exists) {
+      // No cloud data yet — push local data up
+      console.log('No cloud data found, pushing local data...');
+      pushToFirestore();
+      firstSnapshot = false;
+      return;
+    }
+    const remote = snap.data();
+    const remoteTs = remote._savedAt || 0;
+    const localTs  = parseInt(localStorage.getItem('sl3_savedAt')||'0');
+    console.log('Sync check — remote:', remoteTs, 'local:', localTs, 'firstSnapshot:', firstSnapshot);
+
+    if(firstSnapshot) {
+      // On first load, always take whichever is newer
+      if(remoteTs > localTs && remote.DB){
+        console.log('Remote is newer — pulling from cloud');
+        DB = remote.DB;
+        localStorage.setItem('sl3_db', JSON.stringify(DB));
+        localStorage.setItem('sl3_yr', activeYear);
+        localStorage.setItem('sl3_savedAt', String(remoteTs));
+        // Re-init the app with pulled data
+        load();
+        const hasData = Object.keys(DB).some(y=>DB[y]&&(DB[y].batteries?.length>0||DB[y].events?.length>0||DB[y].settings?.teamNum));
+        if(hasData){
+          showMain();
+        }
+      } else if(localTs > 0) {
+        console.log('Local is newer — pushing to cloud');
+        pushToFirestore();
+      }
+      firstSnapshot = false;
+    } else {
+      // Subsequent updates — only pull if remote changed and is newer
+      if(remoteTs > localTs && remote.DB){
+        console.log('Remote updated — pulling');
+        DB = remote.DB;
+        localStorage.setItem('sl3_db', JSON.stringify(DB));
+        localStorage.setItem('sl3_savedAt', String(remoteTs));
+        if(document.getElementById('mainApp').style.display !== 'none'){
+          if(typeof renderEvtSwitcher==='function') renderEvtSwitcher();
+          if(typeof refreshCurrentTab==='function') refreshCurrentTab();
+        }
+      }
+    }
+  }, err => console.warn('Firestore listen error:', err));
+}
+
+window.pushToFirestore = async function() {
+  const user = window._fbUser;
+  if(!user) return;
+  const ts = Date.now();
+  try {
+    await userDocRef(user.uid).set({ DB, _savedAt: ts });
+    localStorage.setItem('sl3_savedAt', String(ts));
+  } catch(e){
+    console.warn('Firestore write error:', e);
+  }
+};
+
+// Register service worker for PWA offline support
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+
+</script>
 </body>
 </html>
