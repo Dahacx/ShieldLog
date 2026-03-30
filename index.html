@@ -639,17 +639,15 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
     <div class="form-group">
       <label class="form-label">Password</label>
       <input type="password" class="form-input" id="authPass" placeholder="••••••••"
-        onkeydown="if(event.key==='Enter')fbAuthAction()">
+        onkeydown="if(event.key==='Enter')fbAuthSubmit()">
     </div>
     <div id="authErr" style="font-size:12px;color:var(--red);min-height:16px;margin-bottom:8px"></div>
-    <button class="btn btn-primary btn-full" id="authSubmitBtn" onclick="fbAuthAction()">Sign In</button>
-    <div style="text-align:center;margin-top:12px">
-      <button id="authToggleBtn" onclick="toggleAuthMode()" style="background:none;border:none;color:var(--blue-bright);font-size:12px;cursor:pointer;text-decoration:underline">
+    <button class="btn btn-primary btn-full" id="authSubmitBtn" onclick="fbAuthSubmit()">Sign In</button>
+    <div style="text-align:center;margin-top:12px;">
+      <button onclick="toggleAuthMode()" id="authToggleBtn"
+        style="background:none;border:none;color:var(--blue-bright);font-size:12px;cursor:pointer;text-decoration:underline;">
         Don't have an account? Sign Up
       </button>
-    </div>
-    <div style="font-size:11px;color:var(--text-500);text-align:center;margin-top:8px">
-      Data syncs in real time across all signed-in devices.
     </div>
   </div>
 </div>
@@ -2142,7 +2140,8 @@ document.head.appendChild(cs);
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 
-// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
+// ── FIREBASE CONFIG ────────────────────────────────────────────────────────
+// To use a different account replace these values with your Firebase project config.
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
   authDomain: "shieldlog-3618.firebaseapp.com",
@@ -2151,258 +2150,279 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "488478875183",
   appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
 };
-// ─────────────────────────────────────────────────────────────────────────────
 
 firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
-// Enable offline persistence so writes queue when signal drops
-db.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
-try { db.enablePersistence({synchronizeTabs:true}).catch(()=>{}); } catch(e){}
+// Enable offline persistence (queues writes when offline)
+try {
+  db.enablePersistence({ synchronizeTabs: true }).catch(e => {
+    if (e.code !== 'failed-precondition' && e.code !== 'unimplemented')
+      console.warn('Persistence:', e.code);
+  });
+} catch(e) {}
 
 let _unsubscribe = null;
 
-// ── AUTH ─────────────────────────────────────────────────────────────────────
-// Auth mode: 'signin' or 'signup'
-window._authMode = 'signin';
-window._setupAuthMode = 'signin';
+// ── AUTH MODE TOGGLE ────────────────────────────────────────────────────────
+let _authMode = 'signin';
 
-function toggleAuthMode() {
-  window._authMode = window._authMode === 'signin' ? 'signup' : 'signin';
-  const isSignup = window._authMode === 'signup';
-  document.getElementById('authModalTitle').textContent = isSignup ? 'Sign Up' : 'Sign In';
-  document.getElementById('authSubmitBtn').textContent = isSignup ? 'Create Account' : 'Sign In';
-  document.getElementById('authToggleBtn').textContent = isSignup
+function _setAuthMode(mode) {
+  _authMode = mode;
+  const signup = mode === 'signup';
+  const titleEl  = document.getElementById('authModalTitle');
+  const submitEl = document.getElementById('authSubmitBtn');
+  const toggleEl = document.getElementById('authToggleBtn');
+  if (titleEl)  titleEl.textContent  = signup ? 'Sign Up'  : 'Sign In';
+  if (submitEl) submitEl.textContent = signup ? 'Create Account' : 'Sign In';
+  if (toggleEl) toggleEl.textContent = signup
     ? 'Already have an account? Sign In'
     : "Don't have an account? Sign Up";
+}
+
+window.toggleAuthMode = function() {
+  _setAuthMode(_authMode === 'signin' ? 'signup' : 'signin');
   const errEl = document.getElementById('authErr');
-  if(errEl) errEl.textContent = '';
-}
-
-function toggleSetupAuthMode() {
-  window._setupAuthMode = window._setupAuthMode === 'signin' ? 'signup' : 'signin';
-  const isSignup = window._setupAuthMode === 'signup';
-  document.getElementById('setupAuthTitle').textContent = isSignup ? 'Sign Up' : 'Sign In';
-  document.getElementById('setupAuthSubmitBtn').textContent = isSignup ? 'Create Account' : 'Sign In';
-  document.getElementById('setupAuthToggleBtn').textContent = isSignup
-    ? 'Already have an account? Sign In'
-    : "Don't have an account? Sign Up";
-  const errEl = document.getElementById('setupAuthErr');
-  if(errEl) errEl.textContent = '';
-}
-
-window.openSetupAuth = function() {
-  // Reset to signin mode
-  window._setupAuthMode = 'signin';
-  document.getElementById('setupAuthTitle').textContent = 'Sign In';
-  document.getElementById('setupAuthSubmitBtn').textContent = 'Sign In';
-  document.getElementById('setupAuthToggleBtn').textContent = "Don't have an account? Sign Up";
-  const errEl = document.getElementById('setupAuthErr');
-  if(errEl) errEl.textContent = '';
-  document.getElementById('setupAuthEmail').value = '';
-  document.getElementById('setupAuthPass').value = '';
-  document.getElementById('setupAuthOverlay').style.display = 'flex';
+  if (errEl) errEl.textContent = '';
 };
 
-async function _doAuth(email, pass, mode, errEl) {
+// Open main auth modal (always resets to sign-in)
+window.openAuthModal = function() {
+  _setAuthMode('signin');
+  const errEl  = document.getElementById('authErr');
+  const emailEl = document.getElementById('authEmail');
+  const passEl  = document.getElementById('authPass');
+  if (errEl)   errEl.textContent = '';
+  if (emailEl) emailEl.value = '';
+  if (passEl)  passEl.value  = '';
+  openModal('authModal');
+};
+
+// Open setup-page auth overlay (works before mainApp is shown)
+window.openSetupAuth = function() {
+  let sa = document.getElementById('setupAuthOverlay');
+  if (!sa) return;
+  document.getElementById('setupAuthEmail').value = '';
+  document.getElementById('setupAuthPass').value  = '';
+  document.getElementById('setupAuthErr').textContent = '';
+  document.getElementById('setupAuthTitle').textContent = 'Sign In';
+  document.getElementById('setupAuthSubmit').textContent = 'Sign In';
+  document.getElementById('setupAuthToggle').textContent = "Don't have an account? Sign Up";
+  sa._mode = 'signin';
+  sa.style.display = 'flex';
+};
+
+window.toggleSetupAuthMode = function() {
+  const sa = document.getElementById('setupAuthOverlay');
+  if (!sa) return;
+  sa._mode = (sa._mode === 'signin') ? 'signup' : 'signin';
+  const signup = sa._mode === 'signup';
+  document.getElementById('setupAuthTitle').textContent  = signup ? 'Sign Up'  : 'Sign In';
+  document.getElementById('setupAuthSubmit').textContent = signup ? 'Create Account' : 'Sign In';
+  document.getElementById('setupAuthToggle').textContent = signup
+    ? 'Already have an account? Sign In'
+    : "Don't have an account? Sign Up";
+  document.getElementById('setupAuthErr').textContent = '';
+};
+
+// Shared auth logic
+async function _performAuth(email, pass, mode, errElId) {
+  const errEl = document.getElementById(errElId);
   try {
-    if(mode === 'signup') {
+    if (mode === 'signup') {
       await auth.createUserWithEmailAndPassword(email, pass);
     } else {
       await auth.signInWithEmailAndPassword(email, pass);
     }
     return true;
   } catch(e) {
-    console.warn('Auth failed:', e.code, e.message);
-    if(errEl) {
-      if(e.code==='auth/wrong-password'||e.code==='auth/user-not-found'||e.code==='auth/invalid-credential')
-        errEl.textContent = 'Incorrect email or password.';
-      else if(e.code==='auth/email-already-in-use')
-        errEl.textContent = 'Account already exists. Try signing in.';
-      else if(e.code==='auth/weak-password')
-        errEl.textContent = 'Password must be at least 6 characters.';
-      else if(e.code==='auth/invalid-email')
-        errEl.textContent = 'Invalid email address.';
-      else if(e.code==='auth/too-many-requests')
-        errEl.textContent = 'Too many attempts. Try again later.';
-      else if(e.code==='auth/operation-not-allowed')
-        errEl.textContent = 'Email/password sign-in not enabled in Firebase console.';
-      else
-        errEl.textContent = 'Failed: ' + (e.message || e.code);
-    }
+    console.warn('Auth error:', e.code);
+    let msg = 'Sign-in failed: ' + e.code;
+    if (e.code === 'auth/wrong-password' || e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential')
+      msg = 'Incorrect email or password.';
+    else if (e.code === 'auth/email-already-in-use')
+      msg = 'Account already exists — try signing in.';
+    else if (e.code === 'auth/weak-password')
+      msg = 'Password must be at least 6 characters.';
+    else if (e.code === 'auth/invalid-email')
+      msg = 'Invalid email address.';
+    else if (e.code === 'auth/too-many-requests')
+      msg = 'Too many attempts — try again later.';
+    else if (e.code === 'auth/operation-not-allowed')
+      msg = 'Email/password auth not enabled in Firebase Console.';
+    if (errEl) errEl.textContent = msg;
     return false;
   }
 }
 
-window.openAuthModal = function() {
-  // Reset to sign-in mode
-  window._authMode = 'signin';
-  document.getElementById('authModalTitle').textContent = 'Sign In';
-  document.getElementById('authSubmitBtn').textContent = 'Sign In';
-  document.getElementById('authToggleBtn').textContent = "Don't have an account? Sign Up";
+// Main modal submit
+window.fbSignIn = window.fbAuthSubmit = async function() {
+  const email = (document.getElementById('authEmail')?.value || '').trim();
+  const pass  = document.getElementById('authPass')?.value || '';
   const errEl = document.getElementById('authErr');
-  if(errEl) errEl.textContent = '';
-  const emailEl = document.getElementById('authEmail');
-  if(emailEl) emailEl.value = '';
-  const passEl = document.getElementById('authPass');
-  if(passEl) passEl.value = '';
-  openModal('authModal');
+  if (!email || !pass) { if (errEl) errEl.textContent = 'Enter email and password.'; return; }
+  if (errEl) errEl.textContent = '';
+  const ok = await _performAuth(email, pass, _authMode, 'authErr');
+  if (ok) closeModal('authModal');
 };
 
-window.fbAuthAction = async function() {
-  const email = document.getElementById('authEmail')?.value?.trim();
-  const pass  = document.getElementById('authPass')?.value;
-  const errEl = document.getElementById('authErr');
-  if(!email || !pass){ if(errEl) errEl.textContent='Enter email and password.'; return; }
-  if(errEl) errEl.textContent = '';
-  const ok = await _doAuth(email, pass, window._authMode, errEl);
-  if(ok) closeModal('authModal');
-};
-
-// Keep old name working too
-window.fbSignIn = window.fbAuthAction;
-
-window.setupAuthAction = async function() {
-  const email = document.getElementById('setupAuthEmail')?.value?.trim();
-  const pass  = document.getElementById('setupAuthPass')?.value;
+// Setup overlay submit
+window.setupAuthSubmit = async function() {
+  const sa    = document.getElementById('setupAuthOverlay');
+  const email = (document.getElementById('setupAuthEmail')?.value || '').trim();
+  const pass  = document.getElementById('setupAuthPass')?.value || '';
   const errEl = document.getElementById('setupAuthErr');
-  if(!email || !pass){ if(errEl) errEl.textContent='Enter email and password.'; return; }
-  if(errEl) errEl.textContent = '';
-  const ok = await _doAuth(email, pass, window._setupAuthMode, errEl);
-  if(ok) document.getElementById('setupAuthOverlay').style.display = 'none';
+  if (!email || !pass) { if (errEl) errEl.textContent = 'Enter email and password.'; return; }
+  if (errEl) errEl.textContent = '';
+  const ok = await _performAuth(email, pass, sa?._mode || 'signin', 'setupAuthErr');
+  if (ok) sa.style.display = 'none';
 };
 
 window.fbSignOut = async function() {
-  if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
+  if (_unsubscribe) { _unsubscribe(); _unsubscribe = null; }
   await auth.signOut();
 };
 
+// ── AUTH STATE ───────────────────────────────────────────────────────────────
 auth.onAuthStateChanged(user => {
   window._fbUser = user;
   updateAuthUI(user);
-  if(user){
-    window._justSignedIn = true;  // flag: on first snapshot always prefer remote
+  if (user) {
     subscribeToFirestore(user.uid);
   } else {
-    if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
+    if (_unsubscribe) { _unsubscribe(); _unsubscribe = null; }
   }
 });
 
-function updateAuthUI(user){
+function updateAuthUI(user) {
   const bar = document.getElementById('authBar');
-  if(!bar) return;
-  if(user){
+  if (!bar) return;
+  if (user) {
     bar.innerHTML = `<span style="font-size:12px;color:var(--text-300)">${user.email}</span>
-      <button class="btn btn-sm btn-secondary" onclick="fbSignOut()" style="font-size:11px;padding:4px 10px">Sign Out</button>`;
-    bar.style.background = 'rgba(34,197,94,0.08)';
-    bar.style.borderColor = 'rgba(34,197,94,0.2)';
+      <button class="btn btn-sm btn-secondary" onclick="fbSignOut()"
+        style="font-size:11px;padding:4px 10px">Sign Out</button>`;
+    bar.style.background   = 'rgba(34,197,94,0.08)';
+    bar.style.borderColor  = 'rgba(34,197,94,0.2)';
   } else {
     bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in</span>
-      <button class="btn btn-sm btn-blue" onclick="openAuthModal()" style="font-size:11px;padding:4px 10px">Sign In</button>`;
-    bar.style.background = 'rgba(59,130,246,0.06)';
-    bar.style.borderColor = 'rgba(59,130,246,0.15)';
+      <button class="btn btn-sm btn-blue" onclick="openAuthModal()"
+        style="font-size:11px;padding:4px 10px">Sign In</button>`;
+    bar.style.background   = 'rgba(59,130,246,0.06)';
+    bar.style.borderColor  = 'rgba(59,130,246,0.15)';
   }
 }
 
 // ── FIRESTORE SYNC ───────────────────────────────────────────────────────────
-function userDocRef(uid){
+function userDocRef(uid) {
   return db.collection('shieldlog').doc(uid);
 }
 
-function subscribeToFirestore(uid){
-  if(_unsubscribe) _unsubscribe();
-  let firstSnapshot = true;
-  _unsubscribe = userDocRef(uid).onSnapshot(snap => {
-    if(!snap.exists) {
-      // No cloud data yet — push local data up
-      console.log('No cloud data found, pushing local data up...');
-      pushToFirestore();
-      firstSnapshot = false;
-      window._justSignedIn = false;
-      return;
-    }
-    const remote = snap.data();
-    const remoteTs = remote._savedAt || 0;
-    const localTs  = parseInt(localStorage.getItem('sl3_savedAt')||'0');
-    console.log('Sync check — remote:', remoteTs, 'local:', localTs, 'firstSnapshot:', firstSnapshot, 'justSignedIn:', window._justSignedIn);
+// Apply remote data into app without triggering another push
+function _applyRemoteDB(remoteData, remoteTs) {
+  DB = remoteData;
+  // Keep localStorage in sync so offline fallback works
+  try {
+    localStorage.setItem('sl3_db',      JSON.stringify(DB));
+    localStorage.setItem('sl3_savedAt', String(remoteTs));
+  } catch(e) {}
+  // If app is already visible, refresh the UI
+  const mainApp = document.getElementById('mainApp');
+  if (mainApp && mainApp.style.display !== 'none') {
+    if (typeof renderEvtSwitcher   === 'function') renderEvtSwitcher();
+    if (typeof refreshCurrentTab   === 'function') refreshCurrentTab();
+  }
+}
 
-    if(firstSnapshot) {
-      // On first sign-in or first load: if remote has data, always pull it.
-      // Only push local if remote is truly empty.
-      if(remote.DB && remoteTs > 0){
-        console.log('Pulling from cloud (firstSnapshot)');
-        DB = remote.DB;
-        localStorage.setItem('sl3_db', JSON.stringify(DB));
-        localStorage.setItem('sl3_savedAt', String(remoteTs));
-        // Re-init the app with pulled data
-        load();
-        const hasData = Object.keys(DB).some(y=>DB[y]&&(DB[y].batteries?.length>0||DB[y].events?.length>0||DB[y].settings?.teamNum));
-        if(hasData){
-          showMain();
+function subscribeToFirestore(uid) {
+  if (_unsubscribe) _unsubscribe();
+  let isFirst = true;
+
+  _unsubscribe = userDocRef(uid).onSnapshot(snap => {
+    const remoteTs = snap.exists ? (snap.data()._savedAt || 0) : 0;
+    const localTs  = parseInt(localStorage.getItem('sl3_savedAt') || '0', 10);
+    console.log('[Sync]', { exists: snap.exists, remoteTs, localTs, isFirst });
+
+    if (isFirst) {
+      isFirst = false;
+
+      if (snap.exists && snap.data().DB) {
+        // Cloud has data — always pull on first connect.
+        // This guarantees any device that signs in gets the shared data.
+        const remote = snap.data();
+        console.log('[Sync] First connect: pulling from cloud');
+        _applyRemoteDB(remote.DB, remote._savedAt || Date.now());
+
+        // Show app if it isn't showing yet
+        const mainApp = document.getElementById('mainApp');
+        if (mainApp && mainApp.style.display === 'none') {
+          const hasData = Object.keys(DB).some(y =>
+            DB[y] && (DB[y].batteries?.length > 0 || DB[y].events?.length > 0 || DB[y].settings?.teamNum)
+          );
+          if (hasData) showMain();
         }
-      } else if(localTs > 0) {
-        console.log('No remote data — pushing local to cloud');
+      } else {
+        // No cloud doc yet — push whatever we have locally
+        console.log('[Sync] First connect: no cloud data, pushing local');
         pushToFirestore();
       }
-      firstSnapshot = false;
-      window._justSignedIn = false;
-    } else {
-      // Subsequent updates — only pull if remote changed and is newer
-      if(remoteTs > localTs && remote.DB){
-        console.log('Remote updated — pulling');
-        DB = remote.DB;
-        localStorage.setItem('sl3_db', JSON.stringify(DB));
-        localStorage.setItem('sl3_savedAt', String(remoteTs));
-        if(document.getElementById('mainApp').style.display !== 'none'){
-          if(typeof renderEvtSwitcher==='function') renderEvtSwitcher();
-          if(typeof refreshCurrentTab==='function') refreshCurrentTab();
-        }
+      return;
+    }
+
+    // Subsequent real-time updates from another device
+    if (snap.exists && snap.data().DB) {
+      const remote = snap.data();
+      if ((remote._savedAt || 0) > localTs) {
+        console.log('[Sync] Live update from another device — pulling');
+        _applyRemoteDB(remote.DB, remote._savedAt || Date.now());
       }
     }
-  }, err => console.warn('Firestore listen error:', err));
+
+  }, err => console.warn('[Sync] Listener error:', err));
 }
 
 window.pushToFirestore = async function() {
   const user = window._fbUser;
-  if(!user) return;
+  if (!user) return;
   const ts = Date.now();
   try {
     await userDocRef(user.uid).set({ DB, _savedAt: ts });
     localStorage.setItem('sl3_savedAt', String(ts));
-  } catch(e){
-    console.warn('Firestore write error:', e);
+    console.log('[Sync] Pushed to Firestore at', ts);
+  } catch(e) {
+    console.warn('[Sync] Write error:', e.code, e.message);
   }
 };
 
-// Register service worker for PWA offline support
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
+// PWA service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
-
 </script>
 
-<!-- Setup-page auth overlay (works before mainApp is shown) -->
-<div id="setupAuthOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:500;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px);">
-  <div style="background:#0f1629;border:1px solid rgba(59,130,246,.3);border-radius:16px;padding:24px;width:100%;max-width:360px;">
+<!-- Setup-screen auth overlay — works before mainApp is visible -->
+<div id="setupAuthOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:600;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(6px);">
+  <div style="background:#0f1629;border:1px solid rgba(59,130,246,.3);border-radius:16px;padding:24px;width:100%;max-width:360px;box-shadow:0 24px 64px rgba(0,0,0,.6);">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <span style="font-family:var(--font-disp);font-size:18px;font-weight:800;" id="setupAuthTitle">Sign In</span>
-      <button onclick="document.getElementById('setupAuthOverlay').style.display='none'" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:6px;color:var(--text-400);width:28px;height:28px;cursor:pointer;font-size:16px;">✕</button>
+      <span style="font-family:var(--font-disp);font-size:18px;font-weight:800;letter-spacing:.04em;" id="setupAuthTitle">Sign In</span>
+      <button onclick="document.getElementById('setupAuthOverlay').style.display='none'"
+        style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:6px;color:var(--text-400);width:28px;height:28px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;">✕</button>
     </div>
-    <div style="font-size:12px;color:var(--text-500);margin-bottom:16px">Use the team credentials to sync across all devices.</div>
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;font-weight:600;color:var(--text-300);display:block;margin-bottom:4px">Email</label>
+    <div style="font-size:12px;color:var(--text-500);margin-bottom:16px;">Use the team credentials to sync data across all devices.</div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;font-weight:600;color:var(--text-300);display:block;margin-bottom:4px;">Email</label>
       <input type="email" id="setupAuthEmail" placeholder="team@email.com" class="form-input">
     </div>
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;font-weight:600;color:var(--text-300);display:block;margin-bottom:4px">Password</label>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;font-weight:600;color:var(--text-300);display:block;margin-bottom:4px;">Password</label>
       <input type="password" id="setupAuthPass" placeholder="••••••••" class="form-input"
-        onkeydown="if(event.key==='Enter')setupAuthAction()">
+        onkeydown="if(event.key==='Enter')setupAuthSubmit()">
     </div>
-    <div id="setupAuthErr" style="font-size:12px;color:var(--red);min-height:16px;margin-bottom:8px"></div>
-    <button class="btn btn-primary btn-full" id="setupAuthSubmitBtn" onclick="setupAuthAction()">Sign In</button>
-    <div style="text-align:center;margin-top:12px">
-      <button id="setupAuthToggleBtn" onclick="toggleSetupAuthMode()" style="background:none;border:none;color:var(--blue-bright);font-size:12px;cursor:pointer;text-decoration:underline">
+    <div id="setupAuthErr" style="font-size:12px;color:var(--red);min-height:16px;margin-bottom:8px;"></div>
+    <button class="btn btn-primary btn-full" id="setupAuthSubmit" onclick="setupAuthSubmit()">Sign In</button>
+    <div style="text-align:center;margin-top:12px;">
+      <button id="setupAuthToggle" onclick="toggleSetupAuthMode()"
+        style="background:none;border:none;color:var(--blue-bright);font-size:12px;cursor:pointer;text-decoration:underline;">
         Don't have an account? Sign Up
       </button>
     </div>
