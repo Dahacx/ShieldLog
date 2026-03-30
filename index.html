@@ -315,7 +315,7 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
         <div style="font-size:13px;font-weight:600;color:var(--text-100);margin-bottom:2px">Sign in for cloud sync</div>
         <div style="font-size:11px;color:var(--text-500)">Same Google account on all devices</div>
       </div>
-      <button class="btn btn-blue btn-sm" onclick="fbSignIn()" style="flex-shrink:0">Sign in with Google</button>
+      <button class="btn btn-blue btn-sm" onclick="openModal('authModal')" style="flex-shrink:0">Sign In</button>
     </div>
     <div class="form-group">
       <label class="form-label">Team Number</label>
@@ -618,6 +618,34 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(this)">
     </div>
     <button class="btn btn-danger btn-full mt-2" onclick="if(confirm('Delete ALL data for ALL years?'))clearAll()">Clear All Data</button>
+  </div>
+</div>
+
+
+<div class="modal-overlay" id="authModal">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-title">
+      Sign In
+      <button class="modal-close" onclick="closeModal('authModal')">x</button>
+    </div>
+    <div style="font-size:12px;color:var(--text-500);margin-bottom:16px">
+      Use the team credentials to sync data across all devices.
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input type="email" class="form-input" id="authEmail" placeholder="team@email.com"
+        onkeydown="if(event.key==='Enter')document.getElementById('authPass').focus()">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input type="password" class="form-input" id="authPass" placeholder="••••••••"
+        onkeydown="if(event.key==='Enter')fbSignIn()">
+    </div>
+    <div id="authErr" style="font-size:12px;color:var(--red);min-height:16px;margin-bottom:8px"></div>
+    <button class="btn btn-primary btn-full" onclick="fbSignIn()">Sign In</button>
+    <div style="font-size:11px;color:var(--text-500);text-align:center;margin-top:10px">
+      Data syncs in real time across all signed-in devices.
+    </div>
   </div>
 </div>
 
@@ -2111,12 +2139,12 @@ document.head.appendChild(cs);
 
 // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
 const FIREBASE_CONFIG = {
-  apiKey:            "PASTE_HERE",
-  authDomain:        "PASTE_HERE",
-  projectId:         "PASTE_HERE",
-  storageBucket:     "PASTE_HERE",
-  messagingSenderId: "PASTE_HERE",
-  appId:             "PASTE_HERE"
+  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
+  authDomain: "shieldlog-3618.firebaseapp.com",
+  projectId: "shieldlog-3618",
+  storageBucket: "shieldlog-3618.firebasestorage.app",
+  messagingSenderId: "488478875183",
+  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2128,16 +2156,28 @@ const db   = firebase.firestore();
 db.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
 try { db.enablePersistence({synchronizeTabs:true}).catch(()=>{}); } catch(e){}
 
-const provider = new firebase.auth.GoogleAuthProvider();
 let _unsubscribe = null;
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
 window.fbSignIn = async function() {
+  const email = document.getElementById('authEmail')?.value?.trim();
+  const pass  = document.getElementById('authPass')?.value;
+  const errEl = document.getElementById('authErr');
+  if(!email || !pass){ if(errEl) errEl.textContent='Enter email and password.'; return; }
+  if(errEl) errEl.textContent='';
   try {
-    await auth.signInWithRedirect(provider);
+    await auth.signInWithEmailAndPassword(email, pass);
+    closeModal('authModal');
   } catch(e) {
-    console.warn('Sign-in failed:', e);
-    alert('Sign-in failed: ' + e.message);
+    console.warn('Sign-in failed:', e.code);
+    if(errEl){
+      if(e.code==='auth/wrong-password'||e.code==='auth/user-not-found'||e.code==='auth/invalid-credential')
+        errEl.textContent='Incorrect email or password.';
+      else if(e.code==='auth/too-many-requests')
+        errEl.textContent='Too many attempts. Try again later.';
+      else
+        errEl.textContent='Sign-in failed: '+e.code;
+    }
   }
 };
 
@@ -2145,22 +2185,6 @@ window.fbSignOut = async function() {
   if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
   await auth.signOut();
 };
-
-// Handle redirect result (fires when Google redirects back to the app)
-auth.getRedirectResult().then(result => {
-  if(result && result.user) {
-    console.log('Redirect sign-in success:', result.user.email);
-    // Auth state change will handle the rest
-  }
-}).catch(e => {
-  console.warn('Redirect result error:', e.code, e.message);
-  // Only show error for real failures, not "no redirect pending"
-  if(e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/null-user') {
-    const bar = document.getElementById('authBar');
-    if(bar) bar.innerHTML = `<span style="font-size:11px;color:var(--red)">Sign-in error: ${e.code}</span>
-      <button class="btn btn-sm btn-blue" onclick="fbSignIn()" style="font-size:11px;padding:4px 10px">Retry</button>`;
-  }
-});
 
 auth.onAuthStateChanged(user => {
   window._fbUser = user;
@@ -2181,8 +2205,8 @@ function updateAuthUI(user){
     bar.style.background = 'rgba(34,197,94,0.08)';
     bar.style.borderColor = 'rgba(34,197,94,0.2)';
   } else {
-    bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in — data is local only</span>
-      <button class="btn btn-sm btn-blue" onclick="fbSignIn()" style="font-size:11px;padding:4px 10px">Sign in with Google</button>`;
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in</span>
+      <button class="btn btn-sm btn-blue" onclick="openModal('authModal')" style="font-size:11px;padding:4px 10px">Sign In</button>`;
     bar.style.background = 'rgba(59,130,246,0.06)';
     bar.style.borderColor = 'rgba(59,130,246,0.15)';
   }
