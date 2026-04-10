@@ -2148,23 +2148,14 @@ document.head.appendChild(cs);
 
 // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
 const FIREBASE_CONFIG = {
-  apiKey:            "PASTE_HERE",
-  authDomain:        "PASTE_HERE",
-  projectId:         "PASTE_HERE",
-  storageBucket:     "PASTE_HERE",
-  messagingSenderId: "PASTE_HERE",
-  appId:             "PASTE_HERE"
+  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
+  authDomain: "shieldlog-3618.firebaseapp.com",
+  projectId: "shieldlog-3618",
+  storageBucket: "shieldlog-3618.firebasestorage.app",
+  messagingSenderId: "488478875183",
+  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
 };
 // ─────────────────────────────────────────────────────────────────────────────
-// If the user entered an API key in the app settings (setup screen), prefer that
-// when the in-file FIREBASE_CONFIG is left as the placeholder. This allows
-// running the app without editing this file directly.
-try{
-  const userKey = (typeof cfg === 'function' && cfg().apiKey) ? cfg().apiKey.trim() : '';
-  if((!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey.startsWith('PASTE')) && userKey){
-    FIREBASE_CONFIG.apiKey = userKey;
-  }
-}catch(e){}
 
 firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth();
