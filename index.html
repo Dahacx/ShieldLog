@@ -432,8 +432,9 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <div class="beak-panel-body">
         <div class="beak-panel-inner">
           <div class="beak-photo-col">
-            <div class="beak-photo-area" id="befPhotoArea">
-              <input type="file" accept="image/*" capture="environment" id="befPhotoIn" onchange="handlePhoto('bef',this)">
+            <div class="beak-photo-area" id="befPhotoArea" onclick="openPhotoChooser('bef')">
+              <input type="file" accept="image/*" capture="environment" id="befPhotoCapture" style="display:none" onchange="handlePhoto('bef',this)">
+              <input type="file" accept="image/*" id="befPhotoFile" style="display:none" onchange="handlePhoto('bef',this)">
               <div id="befPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
             </div>
             <button class="expand-btn" id="befExpandBtn" onclick="openLightbox('bef')" style="display:none">⤢ Enlarge</button>
@@ -462,8 +463,9 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <div class="beak-panel-body">
         <div class="beak-panel-inner">
           <div class="beak-photo-col">
-            <div class="beak-photo-area" id="aftPhotoArea">
-              <input type="file" accept="image/*" capture="environment" id="aftPhotoIn" onchange="handlePhoto('aft',this)">
+            <div class="beak-photo-area" id="aftPhotoArea" onclick="openPhotoChooser('aft')">
+              <input type="file" accept="image/*" capture="environment" id="aftPhotoCapture" style="display:none" onchange="handlePhoto('aft',this)">
+              <input type="file" accept="image/*" id="aftPhotoFile" style="display:none" onchange="handlePhoto('aft',this)">
               <div id="aftPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
             </div>
             <button class="expand-btn" id="aftExpandBtn" onclick="openLightbox('aft')" style="display:none">⤢ Enlarge</button>
@@ -1009,6 +1011,30 @@ function handlePhoto(side, input) {
     }
   };
   fr.readAsDataURL(file);
+}
+
+// Photo chooser helpers: open modal, trigger capture or file input
+function openPhotoChooser(side){
+  window._photoChooserSide = side;
+  const m = document.getElementById('photoChooserModal');
+  if(m) m.style.display='flex';
+}
+function closePhotoChooser(){
+  window._photoChooserSide = null;
+  const m = document.getElementById('photoChooserModal');
+  if(m) m.style.display='none';
+}
+function triggerTakePhoto(){
+  const side = window._photoChooserSide; if(!side) return closePhotoChooser();
+  const inp = document.getElementById(side+'PhotoCapture');
+  if(inp) inp.click();
+  closePhotoChooser();
+}
+function triggerUploadFile(){
+  const side = window._photoChooserSide; if(!side) return closePhotoChooser();
+  const inp = document.getElementById(side+'PhotoFile');
+  if(inp) inp.click();
+  closePhotoChooser();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2139,6 +2165,20 @@ document.head.appendChild(cs);
 </script>
 <div class="lightbox" id="imgLightbox" onclick="closeLightbox()">
   <img id="lightboxImg" src="" alt="Beak reading">
+</div>
+<!-- Photo chooser modal -->
+<div id="photoChooserModal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;z-index:1200;background:rgba(0,0,0,0.4)">
+  <div style="background:var(--bg);border-radius:8px;padding:14px;min-width:260px;box-shadow:0 6px 24px rgba(0,0,0,0.25)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-weight:600">Choose Photo</div>
+      <button onclick="closePhotoChooser()" style="background:none;border:none;font-size:16px;cursor:pointer">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-primary" onclick="triggerTakePhoto()">Take Photo (Camera)</button>
+      <button class="btn btn-secondary" onclick="triggerUploadFile()">Upload File</button>
+      <button class="btn" onclick="closePhotoChooser()">Cancel</button>
+    </div>
+  </div>
 </div>
 <!-- Firebase compat SDKs -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
