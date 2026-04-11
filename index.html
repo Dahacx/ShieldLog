@@ -63,6 +63,8 @@ body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body)
 
 /* CARDS */
 .card{background:#0f1528;border:1px solid rgba(59,130,246,0.15);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px;}
+.card.editable{display:flex;align-items:flex-start;gap:8px;}
+.card.editable .drag-handle{margin-top:0;margin-right:8px;}
 .card-title{font-family:var(--font-disp);font-size:16px;font-weight:700;letter-spacing:.04em;color:var(--text-100);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
 
 /* FORMS */
@@ -560,19 +562,7 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
 <div id="view-analytics" class="view">
   <div class="sec-title">Analytics</div>
   <div class="batt-filter" id="battFilter"></div>
-  <div class="card"><div class="card-title">Rint Trend</div><div class="chart-wrap"><canvas id="rintChart"></canvas></div></div>
-  <div class="card"><div class="card-title">V2 Loaded Voltage (18A)</div><div class="chart-wrap"><canvas id="v2Chart"></canvas></div></div>
-  <div class="card"><div class="card-title">Post-Match Charge % Drop</div><div class="chart-wrap"><canvas id="chargeChart"></canvas></div></div>
-  <div class="card"><div class="card-title">Ah vs. Rint Scatter</div><div class="chart-wrap"><canvas id="scatterChart"></canvas></div></div>
-  <div class="card">
-    <div class="card-title">Full Match Log</div>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr><th>Phase</th><th>M#</th><th>Battery</th><th>Time</th><th>Src</th><th>Pre-Chg%</th><th>Pre-Rint</th><th>Pre-V2</th><th>Post-Chg%</th><th>Post-Rint</th><th>Post-V2</th><th>Verified</th></tr></thead>
-        <tbody id="matchLogBody"></tbody>
-      </table>
-    </div>
-  </div>
+  <div id="analyticsContainer"></div>
 </div>
 
 <!-- SETTINGS -->
@@ -757,7 +747,8 @@ function defaultYearData() {
       teamNum:'', chargerSlots:4, fieldBatts:2,
       minCharge:110, rintCutoff:0.020, practiceMin:10, compMin:12,
       playoffN:8, finalsN:3, hasDrainer:false, drainVolt:12.4, apiKey:'',
-      weights:{ rint:35, v2:25, charge:20, ah:20 }
+      weights:{ rint:10, v2:20, charge:25, ah:45 },
+      analyticsOrder:['rintChart','v2Chart','chargeChart','scatterChart','matchLog']
     }
   };
 }
@@ -824,7 +815,7 @@ function showTab(tab) {
   if(tab==='batteries') renderBatteries();
   if(tab==='ranking') renderRanking();
   if(tab==='cycling') renderCycling();
-  if(tab==='analytics') { buildBattFilter(); renderAllCharts(); renderMatchLog(); }
+  if(tab==='analytics') { buildBattFilter(); renderAnalytics(); }
   if(tab==='settings') loadSettings();
   if(tab==='log') initLogForm();
   // Show FAB only on tabs where edit makes sense
@@ -1651,6 +1642,7 @@ function genCycling(){
 
 // Drag-drop for cycling reorder — vertical only, moves full row
 let dragIdx=null;
+let analyticsDragId=null;
 let _dragGhostEl=null;
 
 function dragStart(e,idx){
@@ -1690,6 +1682,46 @@ function dragDrop(e,idx){
 function dragEnd(e){
   document.querySelectorAll('.cycle-row').forEach(r=>{r.classList.remove('dragging');r.classList.remove('drag-over');});
   dragIdx=null;
+}
+
+function analyticsDragStart(e, id){
+  analyticsDragId = id;
+  const card = document.getElementById('card-' + id);
+  card.classList.add('dragging');
+  if(e.dataTransfer){
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.setDragImage(card, e.offsetX, e.offsetY);
+  }
+}
+
+function analyticsDragOver(e, id){
+  e.preventDefault();
+  if(e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('#analyticsContainer .card').forEach(c => c.classList.remove('drag-over'));
+  const target = document.getElementById('card-' + id);
+  if(target) target.classList.add('drag-over');
+}
+
+function analyticsDragDrop(e, id){
+  e.preventDefault();
+  document.querySelectorAll('#analyticsContainer .card').forEach(c => {c.classList.remove('drag-over'); c.classList.remove('dragging');});
+  if(!analyticsDragId || analyticsDragId === id){ analyticsDragId = null; return; }
+  const order = cfg().analyticsOrder;
+  const fromIdx = order.indexOf(analyticsDragId);
+  const toIdx = order.indexOf(id);
+  if(fromIdx === -1 || toIdx === -1) return;
+  const [moved] = order.splice(fromIdx, 1);
+  order.splice(toIdx, 0, moved);
+  cfg().analyticsOrder = order;
+  save();
+  renderAnalytics();
+  analyticsDragId = null;
+}
+
+function analyticsDragEnd(e){
+  document.querySelectorAll('#analyticsContainer .card').forEach(c => {c.classList.remove('dragging'); c.classList.remove('drag-over');});
+  analyticsDragId = null;
 }
 
 function removeCycleRow(idx){
@@ -1736,6 +1768,8 @@ function setEditMode(val){
     fab.classList.remove('editing');
     icon.innerHTML='<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>';
   }
+  // Re-render current tab to show/hide edit controls
+  refreshCurrentTab();
 }
 
 function toggleEdit(){
@@ -1837,6 +1871,49 @@ function renderAllCharts(){
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.x}Ah / ${c.parsed.y.toFixed(3)}`}}}
     }
   });
+}
+
+function renderAnalytics(){
+  renderAllCharts();
+  renderMatchLog();
+  const order = cfg().analyticsOrder || ['rintChart','v2Chart','chargeChart','scatterChart','matchLog'];
+  const container = document.getElementById('analyticsContainer');
+  container.innerHTML = order.map(id => {
+    let html = '';
+    if(id === 'rintChart'){
+      html = `<div class="card ${editMode ? 'editable' : ''}" id="card-${id}" ${editMode ? `draggable="true" ondragstart="analyticsDragStart(event,'${id}')" ondragover="analyticsDragOver(event,'${id}')" ondrop="analyticsDragDrop(event,'${id}')" ondragend="analyticsDragEnd(event)"` : ''}>
+        ${editMode ? '<div class="drag-handle" title="Drag to reorder">⠿</div>' : ''}
+        <div class="card-title">Rint Trend</div><div class="chart-wrap"><canvas id="rintChart"></canvas></div>
+      </div>`;
+    } else if(id === 'v2Chart'){
+      html = `<div class="card ${editMode ? 'editable' : ''}" id="card-${id}" ${editMode ? `draggable="true" ondragstart="analyticsDragStart(event,'${id}')" ondragover="analyticsDragOver(event,'${id}')" ondrop="analyticsDragDrop(event,'${id}')" ondragend="analyticsDragEnd(event)"` : ''}>
+        ${editMode ? '<div class="drag-handle" title="Drag to reorder">⠿</div>' : ''}
+        <div class="card-title">V2 Loaded Voltage (18A)</div><div class="chart-wrap"><canvas id="v2Chart"></canvas></div>
+      </div>`;
+    } else if(id === 'chargeChart'){
+      html = `<div class="card ${editMode ? 'editable' : ''}" id="card-${id}" ${editMode ? `draggable="true" ondragstart="analyticsDragStart(event,'${id}')" ondragover="analyticsDragOver(event,'${id}')" ondrop="analyticsDragDrop(event,'${id}')" ondragend="analyticsDragEnd(event)"` : ''}>
+        ${editMode ? '<div class="drag-handle" title="Drag to reorder">⠿</div>' : ''}
+        <div class="card-title">Post-Match Charge % Drop</div><div class="chart-wrap"><canvas id="chargeChart"></canvas></div>
+      </div>`;
+    } else if(id === 'scatterChart'){
+      html = `<div class="card ${editMode ? 'editable' : ''}" id="card-${id}" ${editMode ? `draggable="true" ondragstart="analyticsDragStart(event,'${id}')" ondragover="analyticsDragOver(event,'${id}')" ondrop="analyticsDragDrop(event,'${id}')" ondragend="analyticsDragEnd(event)"` : ''}>
+        ${editMode ? '<div class="drag-handle" title="Drag to reorder">⠿</div>' : ''}
+        <div class="card-title">Ah vs. Rint Scatter</div><div class="chart-wrap"><canvas id="scatterChart"></canvas></div>
+      </div>`;
+    } else if(id === 'matchLog'){
+      html = `<div class="card ${editMode ? 'editable' : ''}" id="card-${id}" ${editMode ? `draggable="true" ondragstart="analyticsDragStart(event,'${id}')" ondragover="analyticsDragOver(event,'${id}')" ondrop="analyticsDragDrop(event,'${id}')" ondragend="analyticsDragEnd(event)"` : ''}>
+        ${editMode ? '<div class="drag-handle" title="Drag to reorder">⠿</div>' : ''}
+        <div class="card-title">Full Match Log</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Phase</th><th>M#</th><th>Battery</th><th>Time</th><th>Src</th><th>Pre-Chg%</th><th>Pre-Rint</th><th>Pre-V2</th><th>Post-Chg%</th><th>Post-Rint</th><th>Post-V2</th><th>Verified</th></tr></thead>
+            <tbody id="matchLogBody"></tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+    return html;
+  }).join('');
 }
 
 function renderMatchLog(){
