@@ -10,7 +10,119 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ShieldLog">
+<!-- Firebase compat SDKs (no module bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
+  authDomain: "shieldlog-3618.firebaseapp.com",
+  projectId: "shieldlog-3618",
+  storageBucket: "shieldlog-3618.firebasestorage.app",
+  messagingSenderId: "488478875183",
+  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// Enable offline persistence so writes queue when signal drops
+db.enablePersistence().catch(()=>{});
+
+const provider = new firebase.auth.GoogleAuthProvider();
+let _unsubscribe = null;
+
+// ── AUTH ─────────────────────────────────────────────────────────────────────
+window.fbSignIn = async function() {
+  try {
+    await auth.signInWithPopup(provider);
+  } catch(e) {
+    console.warn('Sign-in failed:', e);
+    alert('Sign-in failed: ' + e.message);
+  }
+};
+
+window.fbSignOut = async function() {
+  if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
+  await auth.signOut();
+};
+
+auth.onAuthStateChanged(user => {
+  window._fbUser = user;
+  updateAuthUI(user);
+  if(user){
+    subscribeToFirestore(user.uid);
+  } else {
+    if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
+  }
+});
+
+function updateAuthUI(user){
+  const bar = document.getElementById('authBar');
+  if(!bar) return;
+  if(user){
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text-300)">${user.email}</span>
+      <button class="btn btn-sm btn-secondary" onclick="fbSignOut()" style="font-size:11px;padding:4px 10px">Sign Out</button>`;
+    bar.style.background = 'rgba(34,197,94,0.08)';
+    bar.style.borderColor = 'rgba(34,197,94,0.2)';
+  } else {
+    bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in — data is local only</span>
+      <button class="btn btn-sm btn-blue" onclick="fbSignIn()" style="font-size:11px;padding:4px 10px">Sign in with Google</button>`;
+    bar.style.background = 'rgba(59,130,246,0.06)';
+    bar.style.borderColor = 'rgba(59,130,246,0.15)';
+  }
+}
+
+// ── FIRESTORE SYNC ───────────────────────────────────────────────────────────
+function userDocRef(uid){
+  return db.collection('shieldlog').doc(uid);
+}
+
+function subscribeToFirestore(uid){
+  if(_unsubscribe) _unsubscribe();
+  _unsubscribe = userDocRef(uid).onSnapshot(snap => {
+    if(!snap.exists) {
+      pushToFirestore();
+      return;
+    }
+    const remote = snap.data();
+    const remoteTs = remote._savedAt || 0;
+    const localTs  = parseInt(localStorage.getItem('sl3_savedAt')||'0');
+    if(remoteTs >= localTs){
+      if(remote.DB){
+        DB = remote.DB;
+        localStorage.setItem('sl3_db', JSON.stringify(DB));
+        localStorage.setItem('sl3_savedAt', String(remoteTs));
+        if(document.getElementById('mainApp').style.display !== 'none'){
+          if(typeof renderEvtSwitcher==='function') renderEvtSwitcher();
+          if(typeof refreshCurrentTab==='function') refreshCurrentTab();
+        }
+      }
+    }
+  }, err => console.warn('Firestore listen error:', err));
+}
+
+window.pushToFirestore = async function() {
+  const user = window._fbUser;
+  if(!user) return;
+  const ts = Date.now();
+  try {
+    await userDocRef(user.uid).set({ DB, _savedAt: ts });
+    localStorage.setItem('sl3_savedAt', String(ts));
+  } catch(e){
+    console.warn('Firestore write error:', e);
+  }
+};
+
+// Register service worker for PWA offline support
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -29,17 +141,51 @@ html,body{height:100%;}
 body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body);font-size:15px;line-height:1.5;overflow-x:hidden;}
 
 /* HEADER */
-.app-header{background:linear-gradient(135deg,#0a1a4a 0%,#0d2060 40%,#0e2878 100%);border-bottom:1px solid rgba(59,130,246,0.25);display:flex;align-items:center;padding:0 8px;height:52px;position:sticky;top:0;z-index:100;gap:6px;width:100%;box-sizing:border-box;min-width:0;}
-.logo-group{display:flex;align-items:center;gap:6px;flex-shrink:0;margin-right:4px;}
+.app-header{background:linear-gradient(135deg,#0a1a4a 0%,#0d2060 40%,#0e2878 100%);border-bottom:1px solid rgba(59,130,246,0.25);display:flex;align-items:center;padding:0 10px;height:52px;position:sticky;top:0;z-index:100;gap:0;width:100%;box-sizing:border-box;}
+.logo-group{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-right:12px;}
 .logo-img{width:38px;height:38px;object-fit:contain;flex-shrink:0;}
-.logo-txt{font-family:var(--font-disp);font-size:18px;font-weight:800;letter-spacing:.05em;color:var(--text-100);white-space:nowrap;flex-shrink:0;}
+.logo-txt{font-family:var(--font-disp);font-size:20px;font-weight:800;letter-spacing:.05em;color:var(--text-100);white-space:nowrap;flex-shrink:0;}
 .logo-txt span{color:var(--blue-bright);}
 .header-nav{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
 .nav-tab{font-family:var(--font-body);font-size:14px;font-weight:500;color:rgba(255,255,255,.65);padding:8px 12px;border:none;background:none;cursor:pointer;white-space:nowrap;border-radius:6px;transition:all .15s;}
 .nav-tab:hover{color:var(--text-100);background:rgba(255,255,255,.10);}
 .nav-tab.active{color:var(--text-100);background:rgba(59,130,246,.25);font-weight:600;border-bottom:2px solid var(--blue-bright);}
 .nav-spacer{flex:1;}
-.header-right{display:flex;align-items:center;gap:4px;flex-shrink:0;}
+.header-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+
+/* HAMBURGER NAV */
+.hamburger-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:36px;height:36px;flex-shrink:0;transition:all .15s;}
+.hamburger-btn:hover{border-color:var(--accent);}
+.hamburger-btn span{display:block;width:16px;height:2px;background:var(--text-300);border-radius:2px;transition:all .2s;}
+.hamburger-btn.open span:nth-child(1){transform:translateY(6px) rotate(45deg);}
+.hamburger-btn.open span:nth-child(2){opacity:0;}
+.hamburger-btn.open span:nth-child(3){transform:translateY(-6px) rotate(-45deg);}
+
+.mobile-menu{position:fixed;top:52px;left:0;right:0;background:var(--bg-900);border-bottom:1px solid rgba(59,130,246,.25);z-index:99;display:none;flex-direction:column;padding:8px;gap:2px;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.mobile-menu.open{display:flex;}
+.mobile-menu-item{font-family:var(--font-body);font-size:15px;font-weight:500;color:rgba(255,255,255,.75);padding:12px 16px;border:none;background:none;cursor:pointer;text-align:left;border-radius:8px;transition:all .15s;width:100%;}
+.mobile-menu-item:hover{color:var(--text-100);background:rgba(255,255,255,.08);}
+.mobile-menu-item.active{color:var(--text-100);background:rgba(59,130,246,.2);font-weight:600;}
+
+/* Hide desktop nav on small screens, show hamburger */
+@media(max-width:700px){
+  .header-nav{display:none;}
+  .hamburger-btn{display:flex;}
+}
+/* MOBILE HEADER ADJUSTMENTS */
+@media(max-width:700px){
+  .logo-txt{display:none;}
+  .logo-img{width:30px;height:30px;}
+  .year-sel{display:none;}
+  .evt-switcher{display:none;}
+  #authBar span{display:none;}
+  .header-right{gap:2px;}
+}
+
+@media(min-width:701px){
+  .hamburger-btn{display:none;}
+  .mobile-menu{display:none !important;}
+}
 .year-sel{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:6px;color:var(--text-200);font-family:var(--font-mono);font-size:12px;padding:4px 8px;cursor:pointer;outline:none;}
 .year-sel option{background:#0f1629;}
 .evt-switcher{display:flex;align-items:center;gap:5px;max-width:300px;overflow-x:auto;scrollbar-width:none;}
@@ -62,8 +208,14 @@ body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body)
 .view.active{display:block;}
 
 /* CARDS */
-.card{background:#0f1528;border:1px solid rgba(59,130,246,0.15);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px;}
+.card{background:var(--bg-900);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px;position:relative;}
 .card-title{font-family:var(--font-disp);font-size:16px;font-weight:700;letter-spacing:.04em;color:var(--text-100);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+
+/* Analytics reorder buttons */
+.analytics-reorder-btns{position:absolute;left:8px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:4px;z-index:10;}
+.reorder-btn{background:var(--accent);border:none;color:#fff;width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.reorder-btn:hover:not(:disabled){background:var(--accent-dim);transform:scale(1.1);}
+.reorder-btn:disabled{cursor:not-allowed;}
 
 /* FORMS */
 .form-group{margin-bottom:12px;}
@@ -71,7 +223,7 @@ body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body)
 .form-label .req{color:var(--accent);}
 .help-link{font-size:11px;color:var(--text-500);text-decoration:none;border:1px solid var(--border);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;transition:all .15s;flex-shrink:0;}
 .help-link:hover{border-color:var(--accent);color:var(--accent);}
-.form-input,.form-select,.form-textarea{width:100%;background:#1e2444;border:1px solid rgba(59,130,246,0.25);border-radius:var(--radius);color:var(--text-100);font-family:var(--font-body);font-size:14px;padding:9px 11px;transition:border-color .15s,box-shadow .15s;outline:none;appearance:none;}
+.form-input,.form-select,.form-textarea{width:100%;background:var(--bg-800);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-100);font-family:var(--font-body);font-size:14px;padding:9px 11px;transition:border-color .15s,box-shadow .15s;outline:none;appearance:none;}
 .form-input:focus,.form-select:focus,.form-textarea:focus{border-color:var(--border-active);box-shadow:0 0 0 3px var(--accent-glow);}
 .form-input::placeholder{color:var(--text-700);}
 .form-select option{background:var(--bg-800);color:var(--text-100);}
@@ -132,7 +284,7 @@ body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body)
 .photo-label{font-family:var(--font-disp);font-size:14px;font-weight:700;color:var(--text-300);margin-top:4px;}
 .beak-fields{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
 @media(max-width:420px){.beak-fields{grid-template-columns:repeat(2,1fr);}}
-.beak-field{background:#1a2040;border:1px solid rgba(59,130,246,0.2);border-radius:7px;padding:7px 9px;position:relative;}
+.beak-field{background:var(--bg-900);border:1px solid var(--border);border-radius:7px;padding:7px 9px;position:relative;}
 .beak-field.conf-hi{border-color:rgba(34,197,94,.3);}
 .beak-field.conf-med{border-color:rgba(234,179,8,.3);}
 .beak-field.conf-lo{border-color:rgba(239,68,68,.35);}
@@ -158,7 +310,7 @@ body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body)
 .batt-meta{font-family:var(--font-mono);font-size:10px;color:var(--text-500);margin-top:2px;}
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
 @media(max-width:420px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
-.stat-cell{background:#1e2444;border-radius:6px;padding:7px 9px;}
+.stat-cell{background:var(--bg-800);border-radius:6px;padding:7px 9px;}
 .stat-lbl{font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-500);margin-bottom:2px;}
 .stat-val{font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-100);}
 .stat-val.good{color:var(--green);} .stat-val.warn{color:var(--yellow);} .stat-val.bad{color:var(--red);}
@@ -204,7 +356,7 @@ body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body)
 .slider-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
 .slider-name{font-size:13px;color:var(--text-300);}
 .slider-pct{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--accent);}
-input[type=range]{-webkit-appearance:none;width:100%;height:5px;background:var(--bg-700);border-radius:3px;outline:none;}
+input[type=range]{appearance:none;-webkit-appearance:none;width:100%;height:5px;background:var(--bg-700);border-radius:3px;outline:none;}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;background:var(--accent);border-radius:50%;cursor:pointer;border:2px solid var(--bg-900);}
 
 /* TABLE */
@@ -267,41 +419,8 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
 .drag-handle:active{cursor:grabbing;color:var(--accent);}
 .cycle-row.drag-over{border-color:var(--accent);background:var(--accent-glow);}
 .cycle-row.dragging{opacity:.4;pointer-events:none;}
-
-
-/* HAMBURGER NAV */
-.hamburger-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:36px;height:36px;flex-shrink:0;transition:all .15s;}
-.hamburger-btn:hover{border-color:var(--accent);}
-.hamburger-btn span{display:block;width:16px;height:2px;background:var(--text-300);border-radius:2px;transition:all .2s;}
-.hamburger-btn.open span:nth-child(1){transform:translateY(6px) rotate(45deg);}
-.hamburger-btn.open span:nth-child(2){opacity:0;}
-.hamburger-btn.open span:nth-child(3){transform:translateY(-6px) rotate(-45deg);}
-
-.mobile-menu{position:fixed;top:52px;left:0;right:0;background:var(--bg-900);border-bottom:1px solid rgba(59,130,246,.25);z-index:99;display:none;flex-direction:column;padding:8px;gap:2px;box-shadow:0 8px 24px rgba(0,0,0,.4);}
-.mobile-menu.open{display:flex;}
-.mobile-menu-item{font-family:var(--font-body);font-size:15px;font-weight:500;color:rgba(255,255,255,.75);padding:12px 16px;border:none;background:none;cursor:pointer;text-align:left;border-radius:8px;transition:all .15s;width:100%;}
-.mobile-menu-item:hover{color:var(--text-100);background:rgba(255,255,255,.08);}
-.mobile-menu-item.active{color:var(--text-100);background:rgba(59,130,246,.2);font-weight:600;}
-
-/* Hide desktop nav on small screens, show hamburger */
-@media(max-width:700px){
-  .header-nav{display:none;}
-  .hamburger-btn{display:flex;}
-}
-/* MOBILE HEADER ADJUSTMENTS */
-@media(max-width:700px){
-  .logo-txt{display:none;}
-  .logo-img{width:30px;height:30px;}
-  .year-sel{display:none;}
-  .evt-switcher{display:none;}
-  #authBar span{display:none;}
-  .header-right{gap:2px;}
-}
-
-@media(min-width:701px){
-  .hamburger-btn{display:none;}
-  .mobile-menu{display:none !important;}
-}
+.card.drag-over{border-color:var(--accent);background:var(--accent-glow);}
+.card.dragging{opacity:.4;pointer-events:none;}
 
 .flex{display:flex;} .items-center{align-items:center;} .justify-between{justify-content:space-between;} .gap-2{gap:8px;} .gap-3{gap:12px;}
 .mt-1{margin-top:4px;} .mt-2{margin-top:8px;} .mt-3{margin-top:12px;} .mb-1{margin-bottom:4px;} .mb-2{margin-bottom:8px;}
@@ -324,7 +443,7 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
         <div style="font-size:13px;font-weight:600;color:var(--text-100);margin-bottom:2px">Sign in for cloud sync</div>
         <div style="font-size:11px;color:var(--text-500)">Same Google account on all devices</div>
       </div>
-      <button class="btn btn-blue btn-sm" onclick="openModal('authModal')" style="flex-shrink:0">Sign In</button>
+      <button class="btn btn-blue btn-sm" onclick="fbSignIn()" style="flex-shrink:0">Sign in with Google</button>
     </div>
     <div class="form-group">
       <label class="form-label">Team Number</label>
@@ -376,7 +495,7 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
   <div id="authBar" style="display:flex;align-items:center;gap:6px;padding:3px 8px;border-radius:8px;border:1px solid rgba(59,130,246,0.15);background:rgba(59,130,246,0.06);transition:all .3s;flex-shrink:1;min-width:0;overflow:hidden;">
     <span style="font-size:12px;color:var(--text-500)">Loading…</span>
   </div>
-<nav class="header-nav">
+  <nav class="header-nav">
     <button class="nav-tab active" data-tab="log" onclick="showTab('log')">Log Match</button>
     <button class="nav-tab" data-tab="batteries" onclick="showTab('batteries')">Batteries</button>
     <button class="nav-tab" data-tab="ranking" onclick="showTab('ranking')">Ranking</button>
@@ -432,9 +551,8 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <div class="beak-panel-body">
         <div class="beak-panel-inner">
           <div class="beak-photo-col">
-            <div class="beak-photo-area" id="befPhotoArea" onclick="openPhotoChooser('bef')">
-              <input type="file" accept="image/*" capture="environment" id="befPhotoCapture" style="display:none" onchange="handlePhoto('bef',this)">
-              <input type="file" accept="image/*" id="befPhotoFile" style="display:none" onchange="handlePhoto('bef',this)">
+            <div class="beak-photo-area" id="befPhotoArea">
+              <input type="file" accept="image/*" capture="environment" id="befPhotoIn" onchange="handlePhoto('bef',this)">
               <div id="befPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
             </div>
             <button class="expand-btn" id="befExpandBtn" onclick="openLightbox('bef')" style="display:none">⤢ Enlarge</button>
@@ -463,9 +581,8 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <div class="beak-panel-body">
         <div class="beak-panel-inner">
           <div class="beak-photo-col">
-            <div class="beak-photo-area" id="aftPhotoArea" onclick="openPhotoChooser('aft')">
-              <input type="file" accept="image/*" capture="environment" id="aftPhotoCapture" style="display:none" onchange="handlePhoto('aft',this)">
-              <input type="file" accept="image/*" id="aftPhotoFile" style="display:none" onchange="handlePhoto('aft',this)">
+            <div class="beak-photo-area" id="aftPhotoArea">
+              <input type="file" accept="image/*" capture="environment" id="aftPhotoIn" onchange="handlePhoto('aft',this)">
               <div id="aftPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
             </div>
             <button class="expand-btn" id="aftExpandBtn" onclick="openLightbox('aft')" style="display:none">⤢ Enlarge</button>
@@ -560,17 +677,20 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
 <div id="view-analytics" class="view">
   <div class="sec-title">Analytics</div>
   <div class="batt-filter" id="battFilter"></div>
-  <div class="card"><div class="card-title">Rint Trend</div><div class="chart-wrap"><canvas id="rintChart"></canvas></div></div>
-  <div class="card"><div class="card-title">V2 Loaded Voltage (18A)</div><div class="chart-wrap"><canvas id="v2Chart"></canvas></div></div>
-  <div class="card"><div class="card-title">Post-Match Charge % Drop</div><div class="chart-wrap"><canvas id="chargeChart"></canvas></div></div>
-  <div class="card"><div class="card-title">Ah vs. Rint Scatter</div><div class="chart-wrap"><canvas id="scatterChart"></canvas></div></div>
-  <div class="card">
-    <div class="card-title">Full Match Log</div>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr><th>Phase</th><th>M#</th><th>Battery</th><th>Time</th><th>Src</th><th>Pre-Chg%</th><th>Pre-Rint</th><th>Pre-V2</th><th>Post-Chg%</th><th>Post-Rint</th><th>Post-V2</th><th>Verified</th></tr></thead>
-        <tbody id="matchLogBody"></tbody>
-      </table>
+  <div id="analyticsContainer">
+    <div class="card" id="analytics-v2"><div class="card-title">V2 Ending Voltage (18A)</div><div class="chart-wrap"><canvas id="v2Chart"></canvas></div><div id="v2Legend" class="batt-filter" style="margin-top:10px"></div></div>
+    <div class="card" id="analytics-charge"><div class="card-title">Charge % Drop (Before - After)</div><div class="chart-wrap"><canvas id="chargeChart"></canvas></div><div id="chargeLegend" class="batt-filter" style="margin-top:10px"></div></div>
+    <div class="card" id="analytics-scatter"><div class="card-title">Ah vs. Rint Scatter</div><div class="chart-wrap" style="position:relative;"><canvas id="scatterChart"></canvas><div style="position:absolute;top:-14px;left:11.25%;color:var(--red);font-family:var(--font-mono);font-size:12px;font-weight:700;">BAD</div><div style="position:absolute;bottom:10px;right:10px;color:var(--green);font-family:var(--font-mono);font-size:12px;font-weight:700;">GOOD</div></div></div>
+    <div class="card" id="analytics-voltage"><div class="card-title">Voltage Before/After per Match</div><div class="chart-wrap"><canvas id="voltageChart"></canvas></div><div id="voltageLegend" class="batt-filter" style="margin-top:10px"></div></div>
+    <div class="card" id="analytics-voltageDrop"><div class="card-title">Voltage Drop per Match</div><div class="chart-wrap"><canvas id="voltageDropChart"></canvas></div><div id="voltageDropLegend" class="batt-filter" style="margin-top:10px"></div></div>
+    <div class="card" id="analytics-matchLog">
+      <div class="card-title">Full Match Log</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Phase</th><th>M#</th><th>Battery</th><th>Time</th><th>Src</th><th>Pre-Chg%</th><th>Pre-Rint</th><th>Pre-V2</th><th>Post-Chg%</th><th>Post-Rint</th><th>Post-V2</th><th>Verified</th></tr></thead>
+          <tbody id="matchLogBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -629,34 +749,6 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(this)">
     </div>
     <button class="btn btn-danger btn-full mt-2" onclick="if(confirm('Delete ALL data for ALL years?'))clearAll()">Clear All Data</button>
-  </div>
-</div>
-
-
-<div class="modal-overlay" id="authModal">
-  <div class="modal" style="max-width:380px">
-    <div class="modal-title">
-      Sign In
-      <button class="modal-close" onclick="closeModal('authModal')">x</button>
-    </div>
-    <div style="font-size:12px;color:var(--text-500);margin-bottom:16px">
-      Use the team credentials to sync data across all devices.
-    </div>
-    <div class="form-group">
-      <label class="form-label">Email</label>
-      <input type="email" class="form-input" id="authEmail" placeholder="team@email.com"
-        onkeydown="if(event.key==='Enter')document.getElementById('authPass').focus()">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Password</label>
-      <input type="password" class="form-input" id="authPass" placeholder="••••••••"
-        onkeydown="if(event.key==='Enter')fbSignIn()">
-    </div>
-    <div id="authErr" style="font-size:12px;color:var(--red);min-height:16px;margin-bottom:8px"></div>
-    <button class="btn btn-primary btn-full" onclick="fbSignIn()">Sign In</button>
-    <div style="font-size:11px;color:var(--text-500);text-align:center;margin-top:10px">
-      Data syncs in real time across all signed-in devices.
-    </div>
   </div>
 </div>
 
@@ -817,10 +909,6 @@ function showTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('view-'+tab).classList.add('active');
   document.querySelector(`[data-tab="${tab}"]`)?.classList.add('active');
-  // Sync mobile menu
-  document.querySelectorAll('.mobile-menu-item').forEach(el=>{
-    el.classList.toggle('active', el.getAttribute('data-tab')===tab);
-  });
   if(tab==='batteries') renderBatteries();
   if(tab==='ranking') renderRanking();
   if(tab==='cycling') renderCycling();
@@ -1011,30 +1099,6 @@ function handlePhoto(side, input) {
     }
   };
   fr.readAsDataURL(file);
-}
-
-// Photo chooser helpers: open modal, trigger capture or file input
-function openPhotoChooser(side){
-  window._photoChooserSide = side;
-  const m = document.getElementById('photoChooserModal');
-  if(m) m.style.display='flex';
-}
-function closePhotoChooser(){
-  window._photoChooserSide = null;
-  const m = document.getElementById('photoChooserModal');
-  if(m) m.style.display='none';
-}
-function triggerTakePhoto(){
-  const side = window._photoChooserSide; if(!side) return closePhotoChooser();
-  const inp = document.getElementById(side+'PhotoCapture');
-  if(inp) inp.click();
-  closePhotoChooser();
-}
-function triggerUploadFile(){
-  const side = window._photoChooserSide; if(!side) return closePhotoChooser();
-  const inp = document.getElementById(side+'PhotoFile');
-  if(inp) inp.click();
-  closePhotoChooser();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1743,7 +1807,7 @@ function toggleEdit(){
   // Refresh the current tab's edit-sensitive view
   const activeTab=document.querySelector('.nav-tab.active')?.getAttribute('data-tab');
   if(activeTab==='cycling') renderCycling();
-  if(activeTab==='analytics') buildBattFilter();
+  if(activeTab==='analytics') { buildBattFilter(); renderAllCharts(); }
   if(activeTab==='ranking') renderRanking();
 }
 
@@ -1788,7 +1852,16 @@ function getSelectedBatts(){
 function renderAllCharts(){
   if(typeof Chart==='undefined')return;
   const batts=getSelectedBatts();
-  const COLORS=['#3b82f6','#22c55e','#f97316','#a855f7','#eab308','#ef4444','#06b6d4','#ec4899','#84cc16','#f43f5e'];
+  const COLORS=['#3b82f6','#22c55e','#f97316','#a855f7','#eab308','#ef4444','#06b6d4','#ec4899','#84cc16','#f43f5e','#0ea5e9','#c026d3','#f59e0b','#10b981','#fb7185','#8b5cf6'];
+
+  function renderBatteryLegend(containerId,batteries){
+    const container=document.getElementById(containerId);
+    if(!container)return;
+    container.innerHTML=batteries.map((b,i)=>{
+      const color=COLORS[i%COLORS.length];
+      return `<div style="display:inline-flex;align-items:center;gap:6px;margin-right:12px;margin-bottom:6px;"><span style="width:12px;height:12px;border-radius:2px;background:${color};display:inline-block;"></span><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-300);">${b.name}</span></div>`;
+    }).join('');
+  }
 
   function mkLineChart(id,accessor,yLabel,yMin,yMax,extraOptions){
     if(chartInst[id]){chartInst[id].destroy();delete chartInst[id];}
@@ -1806,15 +1879,16 @@ function renderAllCharts(){
             min:yMin,max:yMax,
             ...extraOptions}
         },
-        plugins:{legend:{labels:{color:'#cbd5e1',font:{family:'JetBrains Mono',size:10},boxWidth:12}},
+        plugins:{legend:{display:false},
           tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y!=null?c.parsed.y:'--'}`}}}
       }
     });
   }
 
-  mkLineChart('rintChart',e=>e.after?.rint??null,'Rint (Ohm)',undefined,undefined,{});
   mkLineChart('v2Chart',e=>e.after?.v2??null,'V2 18A Load (V)',undefined,undefined,{});
-  mkLineChart('chargeChart',e=>e.after?.charge??null,'Post-Match Charge %',0,130,{});
+  renderBatteryLegend('v2Legend', batts);
+  mkLineChart('chargeChart',e=>(e.before?.charge??0) - (e.after?.charge??0),'Charge % Drop (Before - After)',undefined,undefined,{});
+  renderBatteryLegend('chargeLegend', batts);
 
   // Scatter
   if(chartInst['scatterChart']){chartInst['scatterChart'].destroy();}
@@ -1833,10 +1907,208 @@ function renderAllCharts(){
         x:{title:{display:true,text:'CBA Ah',color:'#475569'},ticks:{color:'#475569'},grid:{color:'rgba(255,255,255,0.04)'}},
         y:{title:{display:true,text:'Avg Rint',color:'#475569'},ticks:{color:'#475569'},grid:{color:'rgba(255,255,255,0.04)'}}
       },
-      plugins:{legend:{labels:{color:'#cbd5e1',font:{family:'JetBrains Mono',size:10},boxWidth:12}},
+      plugins:{legend:{display:false},
         tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.x}Ah / ${c.parsed.y.toFixed(3)}`}}}
     }
   });
+  renderBatteryLegend('scatterLegend', batts);
+
+  // Voltage Before/After per Match
+  if(chartInst['voltageChart']){chartInst['voltageChart'].destroy();}
+  const matchMap = new Map();
+  const battColorMap = new Map(batts.map((b,i)=>[b.id,COLORS[i%COLORS.length]]));
+  batts.forEach(b => {
+    getEntriesForBatt(b.id).forEach(e => {
+      if (!matchMap.has(e.matchNum)) matchMap.set(e.matchNum, { before: { v0: [], v1: [], v2: [] }, after: { v0: [], v1: [], v2: [] }, batteryColor: null, batteryName: null });
+      const m = matchMap.get(e.matchNum);
+      if (!m.batteryColor){
+        m.batteryColor=battColorMap.get(e.primaryBattId)||'#64748b';
+        const batt=yd().batteries.find(x=>x.id===e.primaryBattId);
+        m.batteryName=batt?.name||'Unknown';
+      }
+      if (e.before?.v0 != null) m.before.v0.push(e.before.v0);
+      if (e.before?.v1 != null) m.before.v1.push(e.before.v1);
+      if (e.before?.v2 != null) m.before.v2.push(e.before.v2);
+      if (e.after?.v0 != null) m.after.v0.push(e.after.v0);
+      if (e.after?.v1 != null) m.after.v1.push(e.after.v1);
+      if (e.after?.v2 != null) m.after.v2.push(e.after.v2);
+    });
+  });
+  const matches = Array.from(matchMap.keys()).sort((a,b)=>a-b);
+  const voltageDatasets = [
+    { label: 'Before V0', data: matches.map(m => ({ x: m, y: matchMap.get(m).before.v0.length ? matchMap.get(m).before.v0.reduce((a,b)=>a+b,0)/matchMap.get(m).before.v0.length : null })), backgroundColor: '#3b82f6', borderColor: '#1e40af', borderWidth: 1, borderRadius: [4, 4, 0, 0], stack: 'before' },
+    { label: 'Before V1', data: matches.map(m => ({ x: m, y: matchMap.get(m).before.v1.length ? matchMap.get(m).before.v1.reduce((a,b)=>a+b,0)/matchMap.get(m).before.v1.length : null })), backgroundColor: '#22c55e', borderColor: '#15803d', borderWidth: 1, borderRadius: [0, 0, 0, 0], stack: 'before' },
+    { label: 'Before V2', data: matches.map(m => ({ x: m, y: matchMap.get(m).before.v2.length ? matchMap.get(m).before.v2.reduce((a,b)=>a+b,0)/matchMap.get(m).before.v2.length : null })), backgroundColor: '#f97316', borderColor: '#c2410c', borderWidth: 1, borderRadius: [0, 0, 0, 0], stack: 'before' },
+    { label: 'After V0', data: matches.map(m => ({ x: m, y: matchMap.get(m).after.v0.length ? matchMap.get(m).after.v0.reduce((a,b)=>a+b,0)/matchMap.get(m).after.v0.length : null })), backgroundColor: '#3b82f6', borderColor: '#1e40af', borderWidth: 1, borderRadius: [4, 4, 0, 0], stack: 'after' },
+    { label: 'After V1', data: matches.map(m => ({ x: m, y: matchMap.get(m).after.v1.length ? matchMap.get(m).after.v1.reduce((a,b)=>a+b,0)/matchMap.get(m).after.v1.length : null })), backgroundColor: '#22c55e', borderColor: '#15803d', borderWidth: 1, borderRadius: [0, 0, 0, 0], stack: 'after' },
+    { label: 'After V2', data: matches.map(m => ({ x: m, y: matchMap.get(m).after.v2.length ? matchMap.get(m).after.v2.reduce((a,b)=>a+b,0)/matchMap.get(m).after.v2.length : null })), backgroundColor: '#f97316', borderColor: '#c2410c', borderWidth: 1, borderRadius: [0, 0, 0, 0], stack: 'after' }
+  ];
+  const voltageBatteryFooter = {
+    id: 'voltageFooter',
+    afterLayout(chart) {
+      const m = Math.max(matches.length, 1);
+      const targetThickness = chart.chartArea.width / (3 * m);
+      chart.options.datasets.bar.barThickness = targetThickness;
+    },
+    afterDatasetsDraw(chart){
+      const {ctx, chartArea, scales:{x}} = chart;
+      const beforeMeta = chart.getDatasetMeta(0);
+      const afterMeta = chart.getDatasetMeta(3);
+      ctx.save();
+      ctx.lineCap = 'round';
+      matches.forEach((m, idx) => {
+        const beforeBar = beforeMeta.data[idx];
+        const afterBar = afterMeta.data[idx];
+        if (!beforeBar && !afterBar) return;
+        const left = beforeBar ? beforeBar.x - beforeBar.width / 2 : afterBar.x - afterBar.width / 2;
+        const right = afterBar ? afterBar.x + afterBar.width / 2 : beforeBar.x + beforeBar.width / 2;
+        const barWidth = Math.max(beforeBar?.width ?? 0, afterBar?.width ?? 0);
+        const trackWidth = chart.chartArea.width / (1.2 * matches.length);
+        const xPos = (left + right) / 2;
+        ctx.lineWidth = 12;
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(xPos - trackWidth / 2, chartArea.bottom);
+        ctx.lineTo(xPos + trackWidth / 2, chartArea.bottom);
+        ctx.stroke();
+        ctx.lineWidth = 9;
+        ctx.strokeStyle = matchMap.get(m).batteryColor || '#64748b';
+        ctx.beginPath();
+        ctx.moveTo(xPos - trackWidth / 2, chartArea.bottom);
+        ctx.lineTo(xPos + trackWidth / 2, chartArea.bottom);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+  };
+  chartInst['voltageChart'] = new Chart(document.getElementById('voltageChart').getContext('2d'), {
+    type: 'bar', data: { datasets: voltageDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: undefined,
+      scales: {
+        x: { 
+          type: 'category',
+          labels: matches,
+          title: { display: true, text: 'Match #', color: '#475569' }, 
+          ticks: { color: '#475569' }, 
+          grid: { color: 'rgba(255,255,255,0.04)' } 
+        },
+        y: { title: { display: true, text: 'Voltage (V)', color: '#475569' }, ticks: { color: '#475569' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      },
+      datasets: { bar: {} },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y != null ? c.parsed.y.toFixed(2) : '--'}V` } }
+      }
+    },
+    plugins: [voltageBatteryFooter]
+  });
+  renderBatteryLegend('voltageLegend', batts);
+
+  // Voltage Drop per Match
+  if(chartInst['voltageDropChart']){chartInst['voltageDropChart'].destroy();}
+  const dropDatasets = [
+    { label: 'V0 Drop', data: matches.map(m => ({ x: m, y: matchMap.get(m).before.v0.length && matchMap.get(m).after.v0.length ? (matchMap.get(m).before.v0.reduce((a,b)=>a+b,0)/matchMap.get(m).before.v0.length) - (matchMap.get(m).after.v0.reduce((a,b)=>a+b,0)/matchMap.get(m).after.v0.length) : null })), backgroundColor: '#3b82f6', borderColor: '#1e40af', borderWidth: 1, borderRadius: [4, 4, 0, 0] },
+    { label: 'V1 Drop', data: matches.map(m => ({ x: m, y: matchMap.get(m).before.v1.length && matchMap.get(m).after.v1.length ? (matchMap.get(m).before.v1.reduce((a,b)=>a+b,0)/matchMap.get(m).before.v1.length) - (matchMap.get(m).after.v1.reduce((a,b)=>a+b,0)/matchMap.get(m).after.v1.length) : null })), backgroundColor: '#22c55e', borderColor: '#15803d', borderWidth: 1, borderRadius: [4, 4, 0, 0] },
+    { label: 'V2 Drop', data: matches.map(m => ({ x: m, y: matchMap.get(m).before.v2.length && matchMap.get(m).after.v2.length ? (matchMap.get(m).before.v2.reduce((a,b)=>a+b,0)/matchMap.get(m).before.v2.length) - (matchMap.get(m).after.v2.reduce((a,b)=>a+b,0)/matchMap.get(m).after.v2.length) : null })), backgroundColor: '#f97316', borderColor: '#c2410c', borderWidth: 1, borderRadius: [4, 4, 0, 0] }
+  ];
+  const batteryFooterPlugin = {
+    id: 'batteryFooter',
+    afterLayout(chart) {
+      const m = Math.max(matches.length, 1);
+      const targetThickness = chart.chartArea.width / (4 * m);
+      chart.options.datasets.bar.barThickness = targetThickness;
+    },
+    afterDatasetsDraw(chart){
+      const {ctx, chartArea} = chart;
+      const firstMeta = chart.getDatasetMeta(0);
+      const lastMeta = chart.getDatasetMeta(dropDatasets.length - 1);
+      ctx.save();
+      ctx.lineCap = 'round';
+      matches.forEach((m, idx) => {
+        const firstBar = firstMeta.data[idx];
+        const lastBar = lastMeta.data[idx];
+        if (!firstBar || !lastBar) return;
+        const left = firstBar.x - firstBar.width / 2;
+        const right = lastBar.x + lastBar.width / 2;
+        const trackWidth = chart.chartArea.width / (1.2 * matches.length);
+        const xPos = (left + right) / 2;
+        ctx.lineWidth = 10;
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(xPos - trackWidth / 2, chartArea.bottom);
+        ctx.lineTo(xPos + trackWidth / 2, chartArea.bottom);
+        ctx.stroke();
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = matchMap.get(m).batteryColor || '#64748b';
+        ctx.beginPath();
+        ctx.moveTo(xPos - trackWidth / 2, chartArea.bottom);
+        ctx.lineTo(xPos + trackWidth / 2, chartArea.bottom);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+  };
+  chartInst['voltageDropChart'] = new Chart(document.getElementById('voltageDropChart').getContext('2d'), {
+    type: 'bar', data: { datasets: dropDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { type: 'category', labels: matches, title: { display: true, text: 'Match #', color: '#475569' }, ticks: { color: '#475569' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { title: { display: true, text: 'Voltage Drop (V)', color: '#475569' }, ticks: { color: '#475569' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      },
+      datasets: { bar: { categoryPercentage: 1, barPercentage: 0.67 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y != null ? c.parsed.y.toFixed(2) : '--'}V` } }
+      }
+    },
+    plugins: [batteryFooterPlugin]
+  });
+  renderBatteryLegend('voltageDropLegend', batts);
+
+  // Handle analytics card reordering and edit mode
+  const container = document.getElementById('analyticsContainer');
+  if(!container) return;
+  
+  const order = yd().analyticsOrder || ['analytics-v2', 'analytics-charge', 'analytics-scatter', 'analytics-voltage', 'analytics-voltageDrop', 'analytics-matchLog'];
+  const currentOrder = Array.from(container.children).map(el => el.id);
+  if(JSON.stringify(currentOrder) !== JSON.stringify(order)){
+    const ordered = order.map(id => document.getElementById(id)).filter(Boolean);
+    ordered.forEach(el => container.appendChild(el));
+  }
+  
+  // Setup reorder buttons based on edit mode
+  const cards = Array.from(container.children);
+  cards.forEach((card, i) => {
+    let btnGroup = card.querySelector('.analytics-reorder-btns');
+    if(btnGroup) btnGroup.remove();
+    
+    if(editMode){
+      const canMoveUp = i > 0;
+      const canMoveDown = i < cards.length - 1;
+      const btnHTML = `
+        <div class="analytics-reorder-btns">
+          <button class="reorder-btn" onclick="moveAnalyticsCard(${i}, -1)" title="Move up" ${canMoveUp?'':'disabled'} style="opacity:${canMoveUp?'1':'0.3'};cursor:${canMoveUp?'pointer':'not-allowed'}">▲</button>
+          <button class="reorder-btn" onclick="moveAnalyticsCard(${i}, 1)" title="Move down" ${canMoveDown?'':'disabled'} style="opacity:${canMoveDown?'1':'0.3'};cursor:${canMoveDown?'pointer':'not-allowed'}">▼</button>
+        </div>`;
+      card.insertAdjacentHTML('afterbegin', btnHTML);
+    }
+  });
+}
+
+function moveAnalyticsCard(idx, direction){
+  const container = document.getElementById('analyticsContainer');
+  const order = yd().analyticsOrder || ['analytics-v2', 'analytics-charge', 'analytics-scatter', 'analytics-voltage', 'analytics-voltageDrop', 'analytics-matchLog'];
+  const newIdx = idx + direction;
+  if(newIdx < 0 || newIdx >= order.length) return;
+  
+  const [moved] = order.splice(idx, 1);
+  order.splice(newIdx, 0, moved);
+  yd().analyticsOrder = order;
+  save();
+  renderAllCharts();
 }
 
 function renderMatchLog(){
@@ -2076,6 +2348,35 @@ function refreshCurrentTab(){
 
 
 // ══════════════════════════════════════════════════════════
+// MOBILE NAV
+// ══════════════════════════════════════════════════════════
+function toggleMobileMenu(){
+  const menu = document.getElementById('mobileMenu');
+  const btn = document.getElementById('hamburgerBtn');
+  const isOpen = menu.classList.contains('open');
+  menu.classList.toggle('open');
+  btn.classList.toggle('open');
+}
+
+function mobileNav(tab){
+  document.querySelectorAll('.mobile-menu-item').forEach(el=>{
+    el.classList.toggle('active', el.getAttribute('data-tab')===tab);
+  });
+  document.getElementById('mobileMenu').classList.remove('open');
+  document.getElementById('hamburgerBtn').classList.remove('open');
+  showTab(tab);
+}
+
+document.addEventListener('click', e=>{
+  const menu = document.getElementById('mobileMenu');
+  const btn = document.getElementById('hamburgerBtn');
+  if(menu && !menu.contains(e.target) && !btn.contains(e.target)){
+    menu.classList.remove('open');
+    btn.classList.remove('open');
+  }
+});
+
+// ══════════════════════════════════════════════════════════
 // LIGHTBOX
 // ══════════════════════════════════════════════════════════
 function openLightbox(side){
@@ -2088,40 +2389,6 @@ function closeLightbox(){
   document.getElementById('imgLightbox').classList.remove('open');
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLightbox();});
-
-
-// ══════════════════════════════════════════════════════════
-// MOBILE NAV
-// ══════════════════════════════════════════════════════════
-function toggleMobileMenu(){
-  const menu = document.getElementById('mobileMenu');
-  const btn = document.getElementById('hamburgerBtn');
-  const isOpen = menu.classList.contains('open');
-  menu.classList.toggle('open');
-  btn.classList.toggle('open');
-}
-
-function mobileNav(tab){
-  // Update mobile menu active state
-  document.querySelectorAll('.mobile-menu-item').forEach(el=>{
-    el.classList.toggle('active', el.getAttribute('data-tab')===tab);
-  });
-  // Close menu
-  document.getElementById('mobileMenu').classList.remove('open');
-  document.getElementById('hamburgerBtn').classList.remove('open');
-  // Navigate
-  showTab(tab);
-}
-
-// Close mobile menu when clicking outside
-document.addEventListener('click', e=>{
-  const menu = document.getElementById('mobileMenu');
-  const btn = document.getElementById('hamburgerBtn');
-  if(menu && !menu.contains(e.target) && !btn.contains(e.target)){
-    menu.classList.remove('open');
-    btn.classList.remove('open');
-  }
-});
 
 // ══════════════════════════════════════════════════════════
 // INIT
@@ -2166,197 +2433,5 @@ document.head.appendChild(cs);
 <div class="lightbox" id="imgLightbox" onclick="closeLightbox()">
   <img id="lightboxImg" src="" alt="Beak reading">
 </div>
-<!-- Photo chooser modal -->
-<div id="photoChooserModal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;z-index:1200;background:rgba(0,0,0,0.4)">
-  <div style="background:var(--bg);border-radius:8px;padding:14px;min-width:260px;box-shadow:0 6px 24px rgba(0,0,0,0.25)">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-weight:600">Choose Photo</div>
-      <button onclick="closePhotoChooser()" style="background:none;border:none;font-size:16px;cursor:pointer">✕</button>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <button class="btn btn-primary" onclick="triggerTakePhoto()">Take Photo (Camera)</button>
-      <button class="btn btn-secondary" onclick="triggerUploadFile()">Upload File</button>
-      <button class="btn" onclick="closePhotoChooser()">Cancel</button>
-    </div>
-  </div>
-</div>
-<!-- Firebase compat SDKs -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script>
-
-// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────────
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyC07jl-s3YNyS0OBaokzjTQLkRldxhVJn8",
-  authDomain: "shieldlog-3618.firebaseapp.com",
-  projectId: "shieldlog-3618",
-  storageBucket: "shieldlog-3618.firebasestorage.app",
-  messagingSenderId: "488478875183",
-  appId: "1:488478875183:web:d38cb318b3045bdf2f30da"
-};
-// ─────────────────────────────────────────────────────────────────────────────
-// If the user entered an API key in the app settings (setup screen), prefer that
-// when the in-file FIREBASE_CONFIG is left as the placeholder. This allows
-// running the app without editing this file directly.
-try{
-  const userKey = (typeof cfg === 'function' && cfg().apiKey) ? cfg().apiKey.trim() : '';
-  if((!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey.startsWith('PASTE')) && userKey){
-    FIREBASE_CONFIG.apiKey = userKey;
-  }
-}catch(e){}
-
-firebase.initializeApp(FIREBASE_CONFIG);
-const auth = firebase.auth();
-const db   = firebase.firestore();
-
-// Enable offline persistence so writes queue when signal drops
-db.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
-try { db.enablePersistence({synchronizeTabs:true}).catch(()=>{}); } catch(e){}
-
-let _unsubscribe = null;
-
-// ── AUTH ─────────────────────────────────────────────────────────────────────
-window.fbSignIn = async function() {
-  const email = document.getElementById('authEmail')?.value?.trim();
-  const pass  = document.getElementById('authPass')?.value;
-  const errEl = document.getElementById('authErr');
-  if(!email || !pass){ if(errEl) errEl.textContent='Enter email and password.'; return; }
-  if(errEl) errEl.textContent='';
-  try {
-    await auth.signInWithEmailAndPassword(email, pass);
-    closeModal('authModal');
-  } catch(e) {
-    console.warn('Sign-in failed:', e.code);
-    if(errEl){
-      if(e.code==='auth/wrong-password'||e.code==='auth/user-not-found'||e.code==='auth/invalid-credential')
-        errEl.textContent='Incorrect email or password.';
-      else if(e.code==='auth/too-many-requests')
-        errEl.textContent='Too many attempts. Try again later.';
-      else
-        errEl.textContent='Sign-in failed: '+e.code;
-    }
-  }
-};
-
-window.fbSignOut = async function() {
-  if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
-  await auth.signOut();
-};
-
-auth.onAuthStateChanged(user => {
-  window._fbUser = user;
-  updateAuthUI(user);
-  if(user){
-    subscribeToFirestore(user.uid);
-  } else {
-    if(_unsubscribe){ _unsubscribe(); _unsubscribe = null; }
-  }
-});
-
-function updateAuthUI(user){
-  const bar = document.getElementById('authBar');
-  if(!bar) return;
-  if(user){
-    bar.innerHTML = `<span style="font-size:12px;color:var(--text-300)">${user.email}</span>
-      <button class="btn btn-sm btn-secondary" onclick="fbSignOut()" style="font-size:11px;padding:4px 10px">Sign Out</button>`;
-    bar.style.background = 'rgba(34,197,94,0.08)';
-    bar.style.borderColor = 'rgba(34,197,94,0.2)';
-  } else {
-    bar.innerHTML = `<span style="font-size:12px;color:var(--text-500)">Not signed in</span>
-      <button class="btn btn-sm btn-blue" onclick="openModal('authModal')" style="font-size:11px;padding:4px 10px">Sign In</button>`;
-    bar.style.background = 'rgba(59,130,246,0.06)';
-    bar.style.borderColor = 'rgba(59,130,246,0.15)';
-  }
-}
-
-// ── FIRESTORE SYNC ───────────────────────────────────────────────────────────
-function userDocRef(uid){
-  return db.collection('shieldlog').doc(uid);
-}
-
-function subscribeToFirestore(uid){
-  if(_unsubscribe) _unsubscribe();
-  let firstSnapshot = true;
-  _unsubscribe = userDocRef(uid).onSnapshot(snap => {
-    if(!snap.exists) {
-      // No cloud data yet — push local data up
-      console.log('No cloud data found, pushing local data...');
-      pushToFirestore();
-      firstSnapshot = false;
-      return;
-    }
-    const remote = snap.data();
-    const remoteTs = remote._savedAt || 0;
-    const localTs  = parseInt(localStorage.getItem('sl3_savedAt')||'0');
-    console.log('Sync check — remote:', remoteTs, 'local:', localTs, 'firstSnapshot:', firstSnapshot);
-
-    if(firstSnapshot) {
-      // On first load, always take whichever is newer
-      if(remoteTs > localTs && remote.DB){
-        console.log('Remote is newer — pulling from cloud');
-        DB = remote.DB;
-        localStorage.setItem('sl3_db', JSON.stringify(DB));
-        localStorage.setItem('sl3_yr', activeYear);
-        localStorage.setItem('sl3_savedAt', String(remoteTs));
-        // Re-init the app with pulled data
-        load();
-        const hasData = Object.keys(DB).some(y=>DB[y]&&(DB[y].batteries?.length>0||DB[y].events?.length>0||DB[y].settings?.teamNum));
-        if(hasData){
-          showMain();
-        }
-      } else if(localTs > 0) {
-        console.log('Local is newer — pushing to cloud');
-        pushToFirestore();
-      }
-      firstSnapshot = false;
-    } else {
-      // Subsequent updates — only pull if remote changed and is newer
-      if(remoteTs > localTs && remote.DB){
-        console.log('Remote updated — pulling');
-        DB = remote.DB;
-        localStorage.setItem('sl3_db', JSON.stringify(DB));
-        localStorage.setItem('sl3_savedAt', String(remoteTs));
-        if(document.getElementById('mainApp').style.display !== 'none'){
-          if(typeof renderEvtSwitcher==='function') renderEvtSwitcher();
-          if(typeof refreshCurrentTab==='function') refreshCurrentTab();
-        }
-      }
-    }
-  }, err => console.warn('Firestore listen error:', err));
-}
-
-window.pushToFirestore = async function() {
-  const user = window._fbUser;
-  if(!user) return;
-  const ts = Date.now();
-  try {
-    // Deep-clone DB and strip base64 photo data before sending to Firestore.
-    // Photos can be several MB each — way over Firestore's 1MB doc limit.
-    // They stay in localStorage only.
-    const dbClean = JSON.parse(JSON.stringify(DB));
-    for(const year of Object.keys(dbClean)){
-      const yd = dbClean[year];
-      if(yd.entries){
-        for(const entry of yd.entries){
-          delete entry.beforePhotoData;
-          delete entry.afterPhotoData;
-        }
-      }
-    }
-    await userDocRef(user.uid).set({ DB: dbClean, _savedAt: ts });
-    localStorage.setItem('sl3_savedAt', String(ts));
-    console.log('Pushed to Firestore OK, ts='+ts);
-  } catch(e){
-    console.warn('Firestore write error:', e.code, e.message);
-  }
-};
-
-// Register service worker for PWA offline support
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
-}
-
-</script>
 </body>
 </html>
