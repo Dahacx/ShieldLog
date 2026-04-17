@@ -568,7 +568,7 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
             <div class="beak-photo-area" id="befPhotoArea" onclick="openPhotoChooser('bef')">
               <input type="file" accept="image/*" capture="environment" id="befPhotoCapture" onchange="handlePhoto('bef',this)">
               <input type="file" accept="image/*" id="befPhotoFile" onchange="handlePhoto('bef',this)">
-              <div id="befPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to choose</div></div>
+              <div id="befPhotoContent"><div class="photo-label">Photo</div><div class="photo-hint">Tap to choose</div></div>
             </div>
             <button class="expand-btn" id="befExpandBtn" onclick="openLightbox('bef')" style="display:none">⤢ Enlarge</button>
           </div>
@@ -2481,7 +2481,7 @@ document.head.appendChild(cs);
 <div class="photo-chooser-modal" id="photoChooserModal" onclick="if(event.target===this) closePhotoChooser();">
   <div class="photo-chooser-card">
     <div class="photo-chooser-title">Add photo</div>
-    <div class="photo-chooser-copy">Choose whether to take a photo now or open one from your device.</div>
+    <div class="photo-chooser-copy">Choose Photo Insertion Method</div>
     <div class="photo-chooser-actions">
       <button type="button" class="photo-chooser-btn primary" onclick="triggerTakePhoto()">Take photo</button>
       <button type="button" class="photo-chooser-btn secondary" onclick="triggerUploadFile()">Open photo</button>
