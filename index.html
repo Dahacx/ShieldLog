@@ -282,6 +282,20 @@ body{background:var(--bg-950);color:var(--text-200);font-family:var(--font-body)
 .beak-photo-area input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
 .photo-hint{font-family:var(--font-mono);font-size:11px;color:var(--text-500);margin-top:6px;}
 .photo-label{font-family:var(--font-disp);font-size:14px;font-weight:700;color:var(--text-300);margin-top:4px;}
+.photo-chooser-modal{display:none;position:fixed;inset:0;z-index:1400;align-items:center;justify-content:center;background:rgba(15,23,42,0.78);}
+.photo-chooser-card{width:min(340px,calc(100% - 32px));background:#ffffff;border:1px solid #475569;border-radius:18px;box-shadow:0 20px 60px rgba(15,23,42,0.18);padding:22px;}
+.photo-chooser-title{font-family:var(--font-disp);font-size:18px;font-weight:800;color:#0f172a;margin-bottom:6px;}
+.photo-chooser-copy{font-family:var(--font-mono);font-size:13px;color:#334155;line-height:1.5;margin-bottom:18px;}
+.photo-chooser-actions{display:grid;gap:10px;margin-bottom:12px;}
+.photo-chooser-btn{border-radius:14px;border:1px solid transparent;font-weight:700;padding:12px 14px;font-size:14px;cursor:pointer;transition:all .16s;}
+.photo-chooser-btn.primary{background:#2563eb;color:#fff;}
+.photo-chooser-btn.primary:hover{background:#1d4ed8;}
+.photo-chooser-btn.secondary{background:#f8fafc;color:#0f172a;border-color:#cbd5e1;}
+.photo-chooser-btn.secondary:hover{background:#e2e8f0;}
+.photo-chooser-btn.close{background:#0f172a;color:#f8fafc;border-color:#334155;}
+.photo-chooser-btn.close:hover{background:#1e293b;}
+.beak-photo-area{cursor:pointer;position:relative;}
+.beak-photo-area input{position:absolute;left:-9999px;visibility:hidden;}
 .beak-fields{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
 @media(max-width:420px){.beak-fields{grid-template-columns:repeat(2,1fr);}}
 .beak-field{background:var(--bg-900);border:1px solid var(--border);border-radius:7px;padding:7px 9px;position:relative;}
@@ -551,9 +565,10 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <div class="beak-panel-body">
         <div class="beak-panel-inner">
           <div class="beak-photo-col">
-            <div class="beak-photo-area" id="befPhotoArea">
-              <input type="file" accept="image/*" capture="environment" id="befPhotoIn" onchange="handlePhoto('bef',this)">
-              <div id="befPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
+            <div class="beak-photo-area" id="befPhotoArea" onclick="openPhotoChooser('bef')">
+              <input type="file" accept="image/*" capture="environment" id="befPhotoCapture" onchange="handlePhoto('bef',this)">
+              <input type="file" accept="image/*" id="befPhotoFile" onchange="handlePhoto('bef',this)">
+              <div id="befPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to choose</div></div>
             </div>
             <button class="expand-btn" id="befExpandBtn" onclick="openLightbox('bef')" style="display:none">⤢ Enlarge</button>
           </div>
@@ -581,9 +596,10 @@ tbody tr:hover td{background:var(--bg-800);cursor:pointer;}
       <div class="beak-panel-body">
         <div class="beak-panel-inner">
           <div class="beak-photo-col">
-            <div class="beak-photo-area" id="aftPhotoArea">
-              <input type="file" accept="image/*" capture="environment" id="aftPhotoIn" onchange="handlePhoto('aft',this)">
-              <div id="aftPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to capture</div></div>
+            <div class="beak-photo-area" id="aftPhotoArea" onclick="openPhotoChooser('aft')">
+              <input type="file" accept="image/*" capture="environment" id="aftPhotoCapture" onchange="handlePhoto('aft',this)">
+              <input type="file" accept="image/*" id="aftPhotoFile" onchange="handlePhoto('aft',this)">
+              <div id="aftPhotoContent"><div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to choose</div></div>
             </div>
             <button class="expand-btn" id="aftExpandBtn" onclick="openLightbox('aft')" style="display:none">⤢ Enlarge</button>
           </div>
@@ -1038,8 +1054,8 @@ function resetLog() {
   ['bef-Charge','bef-V0','bef-V1','bef-V2','bef-Rint',
    'aft-Charge','aft-V0','aft-V1','aft-V2','aft-Rint'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   ['befPhotoArea','aftPhotoArea'].forEach(id=>document.getElementById(id).classList.remove('has-img'));
-  document.getElementById('befPhotoContent').innerHTML='<div class="photo-label">Take / Upload Photo</div><div class="photo-hint">Photo timestamp used as match time</div>';
-  document.getElementById('aftPhotoContent').innerHTML='<div class="photo-label">Take / Upload Photo</div><div class="photo-hint">Rint may read 0.01-0.03 Ohm higher (normal)</div>';
+  document.getElementById('befPhotoContent').innerHTML='<div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to choose</div>';
+  document.getElementById('aftPhotoContent').innerHTML='<div class="photo-label">📷 Photo</div><div class="photo-hint">Tap to choose</div>';
   document.getElementById('obsNotes').value='';
   befVerified=aftVerified=false; befPhotoTime=null;
   setVerState('bef',false); setVerState('aft',false);
@@ -2388,6 +2404,35 @@ function openLightbox(side){
 function closeLightbox(){
   document.getElementById('imgLightbox').classList.remove('open');
 }
+
+function openPhotoChooser(side){
+  window._photoChooserSide = side;
+  const modal = document.getElementById('photoChooserModal');
+  if(modal) modal.style.display = 'flex';
+}
+
+function closePhotoChooser(){
+  window._photoChooserSide = null;
+  const modal = document.getElementById('photoChooserModal');
+  if(modal) modal.style.display = 'none';
+}
+
+function triggerTakePhoto(){
+  const side = window._photoChooserSide;
+  if(!side) return closePhotoChooser();
+  const inp = document.getElementById(side + 'PhotoCapture');
+  if(inp) inp.click();
+  closePhotoChooser();
+}
+
+function triggerUploadFile(){
+  const side = window._photoChooserSide;
+  if(!side) return closePhotoChooser();
+  const inp = document.getElementById(side + 'PhotoFile');
+  if(inp) inp.click();
+  closePhotoChooser();
+}
+
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLightbox();});
 
 // ══════════════════════════════════════════════════════════
@@ -2432,6 +2477,17 @@ document.head.appendChild(cs);
 </script>
 <div class="lightbox" id="imgLightbox" onclick="closeLightbox()">
   <img id="lightboxImg" src="" alt="Beak reading">
+</div>
+<div class="photo-chooser-modal" id="photoChooserModal" onclick="if(event.target===this) closePhotoChooser();">
+  <div class="photo-chooser-card">
+    <div class="photo-chooser-title">Add photo</div>
+    <div class="photo-chooser-copy">Choose whether to take a photo now or open one from your device.</div>
+    <div class="photo-chooser-actions">
+      <button type="button" class="photo-chooser-btn primary" onclick="triggerTakePhoto()">Take photo</button>
+      <button type="button" class="photo-chooser-btn secondary" onclick="triggerUploadFile()">Open photo</button>
+    </div>
+    <button type="button" class="photo-chooser-btn close" onclick="closePhotoChooser()">Close</button>
+  </div>
 </div>
 </body>
 </html>
